@@ -55,9 +55,10 @@ def chunks(l, n):
 
 
 def main(cfg: FairseqConfig) -> None:
+    ## IMP model architecture values are set here in te convert_namespace function. $$IMP
     if isinstance(cfg, argparse.Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
-
+    import ipdb; ipdb.set_trace()
     utils.import_user_module(cfg.common)
 
     if is_master(cfg.distributed_training) and "job_logging_cfg" in cfg:
@@ -78,6 +79,7 @@ def main(cfg: FairseqConfig) -> None:
     # Print args
     logger.info(cfg)
 
+    ## IMP
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
     # Load valid dataset (we load training data below, based on the latest checkpoint)
@@ -86,14 +88,16 @@ def main(cfg: FairseqConfig) -> None:
 
     assert cfg.criterion, "Please specify criterion to train a model"
 
+    ## IMP
     # Build model and criterion
     model = task.build_model(cfg.model)
+    # import ipdb; ipdb.set_trace()
+    ## IMP
     criterion = task.build_criterion(cfg.criterion)
     logger.info(model)
     logger.info("task: {}".format(task.__class__.__name__))
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
-
 
     if torch.distributed.is_initialized() and getattr(cfg.model, "desynchronize", False):
         
@@ -229,8 +233,10 @@ def main(cfg: FairseqConfig) -> None:
     else:
         quantizer = None
 
+    
     # Build trainer
     if cfg.common.model_parallel_size == 1:
+        # Path: dense
         trainer = Trainer(cfg, task, model, criterion, quantizer)
     else:
         trainer = MegatronTrainer(cfg, task, model, criterion)
@@ -249,6 +255,7 @@ def main(cfg: FairseqConfig) -> None:
 
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
+    # epoch itr here contains a dataset iterator which will further be converted into a data loader.
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(
         cfg.checkpoint,
         trainer,
@@ -274,7 +281,7 @@ def main(cfg: FairseqConfig) -> None:
                 f"(--stop-min-lr={cfg.optimization.stop_min_lr})"
             )
             break
-
+        
         # train for one epoch
         valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
         if should_stop:
@@ -584,9 +591,13 @@ def cli_main(
 
     cfg = convert_namespace_to_omegaconf(args)
 
+    
+    # srun --label already creates ntasks number of parallel runs. ipdb will show all of them. Hence ntasks in salloc is very imp.
+    # Path: dense
     if args.profile:
         with torch.cuda.profiler.profile():
             with torch.autograd.profiler.emit_nvtx():
+                # Path: dense
                 distributed_utils.call_main(cfg, main)
     else:
         distributed_utils.call_main(cfg, main)

@@ -94,8 +94,7 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
 
     # support torch.distributed.launch
     if all(
-        key in os.environ
-        for key in ["MASTER_ADDR", "MASTER_PORT", "WORLD_SIZE", "RANK"]
+        key in os.environ for key in ["MASTER_ADDR", "MASTER_PORT", "WORLD_SIZE", "RANK"]
     ):
         cfg.distributed_init_method = "env://"
         cfg.distributed_world_size = int(os.environ["WORLD_SIZE"])
@@ -103,12 +102,14 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
         # processes are created by torch.distributed.launch
         cfg.distributed_no_spawn = True
 
-    # we can determine the init method automatically for Slurm
+    # we can determine the init method automatically for Slurm (here it determines from slurm)
+    # Path: dense
     elif cfg.distributed_port > 0:
         node_list = os.environ.get("SLURM_STEP_NODELIST")
         if node_list is None:
             node_list = os.environ.get("SLURM_JOB_NODELIST")
         if node_list is not None:
+            # Path: dense
             try:
                 hostnames = subprocess.check_output(
                     ["scontrol", "show", "hostnames", node_list]
@@ -150,6 +151,8 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
                     # number of pipelines across all nodes.
                     cfg.distributed_world_size = nnodes * num_pipelines_per_node
                 else:
+                    # Path: dense
+                    # here slurm ntasks are cheked with distributed world size coming from No of GPUS
                     assert ntasks_per_node == cfg.distributed_world_size // nnodes
                     cfg.distributed_no_spawn = True
                     cfg.distributed_rank = int(os.environ.get("SLURM_PROCID"))
@@ -219,7 +222,7 @@ def distributed_init(cfg: FairseqConfig):
         from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 
         cfg = convert_namespace_to_omegaconf(cfg)
-
+    print(">>>1", cfg.common.tpu)
     if not cfg.common.tpu:
         if torch.distributed.is_available() and torch.distributed.is_initialized():
             warnings.warn(
@@ -232,12 +235,15 @@ def distributed_init(cfg: FairseqConfig):
                     cfg.distributed_training.distributed_init_method,
                 )
             )
+            print(">>>1.2", cfg.distributed_training.distributed_backend, cfg.distributed_training.distributed_init_method, 
+            cfg.distributed_training.distributed_world_size, cfg.distributed_training.distributed_rank, flush=True)
             dist.init_process_group(
                 backend=cfg.distributed_training.distributed_backend,
                 init_method=cfg.distributed_training.distributed_init_method,
                 world_size=cfg.distributed_training.distributed_world_size,
                 rank=cfg.distributed_training.distributed_rank,
             )
+            print(">>>1.7", flush=True)
             logger.info(
                 "initialized host {} as rank {}".format(
                     socket.gethostname(),
@@ -258,6 +264,8 @@ def distributed_init(cfg: FairseqConfig):
         cfg.distributed_training.distributed_rank = xm.get_ordinal()
         xm.rendezvous("distributed_init")  # wait for all workers
         xm.mark_step()
+
+    print(">>>2")
 
     if is_master(cfg.distributed_training):
         logging.getLogger().setLevel(logging.INFO)
@@ -283,6 +291,7 @@ def distributed_init(cfg: FairseqConfig):
         model_part_number = get_model_parallel_rank()
         cfg.checkpoint.checkpoint_suffix += "-model_part-{0}".format(model_part_number)
 
+    print(">>>3")
     if getattr(cfg.model, "desynchronize", False) or getattr(cfg.model, "moe_freq", 0) > 0 and getattr(cfg.model, "moe_expert_count", 0) > 0:
         cfg.checkpoint.checkpoint_suffix = f"-rank-{cfg.distributed_training.distributed_rank}"
 
@@ -290,6 +299,8 @@ def distributed_init(cfg: FairseqConfig):
 
 
 def distributed_main(i, main, cfg: FairseqConfig, kwargs):
+    print("distributed main", flush=True)
+    
     cfg.distributed_training.device_id = i
     if torch.cuda.is_available() and not cfg.common.cpu and not cfg.common.tpu:
         torch.cuda.set_device(cfg.distributed_training.device_id)
@@ -302,13 +313,20 @@ def distributed_main(i, main, cfg: FairseqConfig, kwargs):
     if after_distributed_init_fn:
         cfg = after_distributed_init_fn(cfg)
 
+    
+    print("distributed main end", flush=True)
     main(cfg, **kwargs)
 
 
 def call_main(cfg: FairseqConfig, main, **kwargs):
+    # Path: dense
+    
     if cfg.distributed_training.distributed_init_method is None:
+        # Path: dense
         infer_init_method(cfg.distributed_training)
+    print("Device id", cfg.distributed_training.device_id)
 
+    # Path: dense
     if cfg.distributed_training.distributed_init_method is not None:
         # distributed training
         if not cfg.distributed_training.distributed_no_spawn:

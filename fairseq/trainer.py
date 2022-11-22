@@ -436,7 +436,7 @@ class Trainer(object):
         data_selector=None,
         shard_batch_itr=True,
         disable_iterator_cache=False,
-    ):
+    ):  
         """Return an EpochBatchIterator over the training set for a given epoch."""
         if load_dataset:
             logger.info("loading train data for epoch {}".format(epoch))
@@ -448,8 +448,8 @@ class Trainer(object):
             )
 
         if shard_batch_itr and not self.cfg.task.unbalanced:
-            num_shards = torch.distributed.get_world_size() // 8
-            shard_id = torch.distributed.get_rank() % (torch.distributed.get_world_size() // 8)
+            num_shards = torch.distributed.get_world_size() // 1
+            shard_id = torch.distributed.get_rank() % (torch.distributed.get_world_size() // 1)
         elif shard_batch_itr and self.cfg.task.unbalanced:
             num_shards = self.data_parallel_world_size
             shard_id = self.data_parallel_rank
@@ -548,7 +548,7 @@ class Trainer(object):
         logging_outputs, sample_size, ooms = [], 0, 0
         for i, sample in enumerate(samples):  # delayed update loop
             sample, is_dummy_batch = self._prepare_sample(sample)
-
+            import ipdb; ipdb.set_trace()
             # MoE training with --batch-size or --max-sentences set
             if getattr(self.cfg.model, 'moe_freq', 0) > 0 and \
                 getattr(self.cfg.dataset, 'batch_size', None) is not None:

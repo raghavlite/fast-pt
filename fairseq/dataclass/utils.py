@@ -378,7 +378,7 @@ def convert_namespace_to_omegaconf(args: Namespace) -> DictConfig:
     if cfg.model is None and getattr(args, "arch", None):
         cfg.model = Namespace(**vars(args))
         from fairseq.models import ARCH_MODEL_REGISTRY
-
+        # import ipdb; ipdb.set_trace()
         _set_legacy_defaults(cfg.model, ARCH_MODEL_REGISTRY[args.arch])
         cfg.model._name = args.arch
     if cfg.optimizer is None and getattr(args, "optimizer", None):

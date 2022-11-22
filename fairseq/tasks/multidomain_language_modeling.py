@@ -324,6 +324,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         self.dictionary.add_symbol(domain_token(token))
 
     def load_dataset(self, split, epoch=1, combine=False, **kwargs):
+        # load dataset ehre is called from inside trainer to create epoch itr (## IMP)
         """Load a given dataset split.
 
         Args:
@@ -394,7 +395,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
 
         domain_datasets = []
-
+    
         for domain_id, domain in domains:
             split_path = os.path.join(data_path, domain, split)
             dataset = data_utils.load_indexed_dataset(
@@ -486,10 +487,9 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
         logger.info(
             "loaded total {} blocks for all domains".format(
-                dataset_lengths.sum(),
+                dataset_lengths,
             )
         )
-
 
 
         if split in self.args.train_subset.split(','):
@@ -557,6 +557,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
         # if self.args.domain_parallel:
         self.datasets[split] = dataset
+        print("Self datasets", self.datasets)
         # else:
         #     with data_utils.numpy_seed(self.args.seed + epoch):
         #         shuffle = np.random.permutation(len(dataset))

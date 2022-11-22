@@ -131,7 +131,7 @@ elif [[ $EXPERIMENT == *"unbalanced"* ]]; then
                --all-gather-list-size 32000 \
                --unbalanced;
 elif [[ $EXPERIMENT == *"dense"* ]]; then
-     srun --label python fairseq_cli/train.py     $DATA_PATH \
+     python fairseq_cli/train.py     $DATA_PATH \
                --task multidomain_language_modeling \
                --sample-break-mode none \
                --log-format simple  \

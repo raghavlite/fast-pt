@@ -58,7 +58,7 @@ def main(cfg: FairseqConfig) -> None:
     ## IMP model architecture values are set here in te convert_namespace function. $$IMP
     if isinstance(cfg, argparse.Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
-    import ipdb; ipdb.set_trace()
+    
     utils.import_user_module(cfg.common)
 
     if is_master(cfg.distributed_training) and "job_logging_cfg" in cfg:
@@ -82,6 +82,26 @@ def main(cfg: FairseqConfig) -> None:
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
+
+    if('IRL' in cfg.task._name):
+        IRL_state = checkpoint_utils.load_checkpoint_to_cpu(
+                    "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_2_GPUs_transformer_lm_gpt3_small_aa/checkpoint_best.pt", 
+                    load_on_all_ranks=False, 
+                    moe_freq=0,
+                    desynchronize=False
+                )
+        IRL_state = distributed_utils.broadcast_object(
+                    IRL_state,
+                    src_rank=0,
+                    group=distributed_utils.get_data_parallel_group(),
+                    dist_device=torch.device("cuda"),
+                )
+        task.set_IRL_state(IRL_state)
+        # setting increased abtch size
+        cfg.dataset.batch_size=10*cfg.dataset.batch_size
+
+    
+
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in cfg.dataset.valid_subset.split(","):
         task.load_dataset(valid_sub_split, combine=False, epoch=1)
@@ -91,7 +111,7 @@ def main(cfg: FairseqConfig) -> None:
     ## IMP
     # Build model and criterion
     model = task.build_model(cfg.model)
-    # import ipdb; ipdb.set_trace()
+    
     ## IMP
     criterion = task.build_criterion(cfg.criterion)
     logger.info(model)
@@ -262,7 +282,7 @@ def main(cfg: FairseqConfig) -> None:
         # don't cache epoch iterators for sharded datasets
         disable_iterator_cache=task.has_sharded_data("train"),
     )
-
+    
     if getattr(cfg.model, "adaptation", False):
         for x,p in model.named_parameters():
             if hasattr(p, "expert"):
@@ -380,6 +400,7 @@ def train(
     should_stop = False
     num_updates = trainer.get_num_updates()
     for i, samples in enumerate(progress):
+        
         with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
             "train_step-%d" % i
         ):

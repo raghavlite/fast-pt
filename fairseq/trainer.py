@@ -548,7 +548,7 @@ class Trainer(object):
         logging_outputs, sample_size, ooms = [], 0, 0
         for i, sample in enumerate(samples):  # delayed update loop
             sample, is_dummy_batch = self._prepare_sample(sample)
-            import ipdb; ipdb.set_trace()
+            
             # MoE training with --batch-size or --max-sentences set
             if getattr(self.cfg.model, 'moe_freq', 0) > 0 and \
                 getattr(self.cfg.dataset, 'batch_size', None) is not None:

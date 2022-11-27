@@ -328,6 +328,7 @@ def call_main(cfg: FairseqConfig, main, **kwargs):
 
     # Path: dense
     if cfg.distributed_training.distributed_init_method is not None:
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Distributed training mode")
         # distributed training
         if not cfg.distributed_training.distributed_no_spawn:
             start_rank = cfg.distributed_training.distributed_rank
@@ -354,6 +355,7 @@ def call_main(cfg: FairseqConfig, main, **kwargs):
             nprocs=8,  # use all 8 TPU cores
         )
     else:
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Single GPU mode")
         # single GPU main
         main(cfg, **kwargs)
 

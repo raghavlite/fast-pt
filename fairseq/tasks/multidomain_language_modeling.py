@@ -43,6 +43,7 @@ from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.tasks import LegacyFairseqTask, register_task
 from omegaconf import II
 from torch.utils.data import DataLoader
+import torch.utils.data as datau
 
 # from sklearn.feature_extraction.text import CountVectorizer
 # from sklearn.cluster import MiniBatchKMeans
@@ -330,6 +331,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
+        
         train_domains, eval_domains, data_path = MultidomainLanguageModelingTask._get_domains(self.args, epoch)
         logger.info("Training on {0} domains: {1}".format(len(train_domains), train_domains))
         tokens_per_sample = self.args.tokens_per_sample - int(self.args.add_domain_token)
@@ -397,11 +399,15 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         domain_datasets = []
     
         for domain_id, domain in domains:
+            # if('valid' not in split):
+            #     import ipdb; ipdb.set_trace()
             split_path = os.path.join(data_path, domain, split)
             dataset = data_utils.load_indexed_dataset(
                 split_path, self.dictionary, self.args.dataset_impl, combine=combine
             )
-
+            # dataset = dataset[:1024]
+            # indices = torch.arange(1024)
+            # dataset = datau.Subset(dataset, indices)
 
             if dataset is None:
                 continue
@@ -415,7 +421,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
                 self.args.seed,
             )
 
-
+            # ! This converts dataset with different length examples into a contiguous sequence and samples examples at 1024 length each
             dataset = TokenBlockDataset(
                 dataset,
                 dataset.sizes,
@@ -440,6 +446,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
                     src_domain_token = self.dictionary.index(domain_token(domain))
                     tgt_domain_token = self.output_dictionary.index(domain_token(domain))
 
+            # ! This (probably - check for more) adds the target attribute into the datset. it uses 'future' for left shifted targets.
             domain_dataset = MonodomainDataset(
                     dataset=dataset,
                     sizes=dataset.sizes,
@@ -526,6 +533,8 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
                     item, ix
                 )
             )
+                # ! This makes each dataset circular continuous for sampling equal number of minibatches from each dataset.
+
                 dataset = MultiCorpusSampledDataset(ds, gather_lens, gpu_mappings=gpu_mappings)
             else:
                 dataset = ConcatDataset(domain_datasets)

@@ -272,7 +272,7 @@ def main(cfg: FairseqConfig) -> None:
             cfg.dataset.batch_size,
         )
     )
-
+    # import ipdb; ipdb.set_trace()
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
@@ -289,36 +289,11 @@ def main(cfg: FairseqConfig) -> None:
                 delattr(p, "expert")
                 delattr(p, "process_group")
 
-    max_epoch = cfg.optimization.max_epoch or math.inf
-    lr = trainer.get_lr()
-    train_meter = meters.StopwatchMeter()
-    train_meter.start()
-    while epoch_itr.next_epoch_idx <= max_epoch:
-        if lr <= cfg.optimization.stop_min_lr:
-            logger.info(
-                f"stopping training because current learning rate ({lr}) is smaller "
-                "than or equal to minimum learning rate "
-                f"(--stop-min-lr={cfg.optimization.stop_min_lr})"
-            )
-            break
-        
-        # train for one epoch
-        valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
-        if should_stop:
-            break
+    valid_subsets = cfg.dataset.valid_subset.split(",")
+    end_of_epoch=True
+    valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
+    print(valid_losses)
 
-        # only use first validation loss to update the learning rate
-        lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
-
-        epoch_itr = trainer.get_train_iterator(
-            epoch_itr.next_epoch_idx,
-            # sharded data: get train iterator for next epoch
-            load_dataset=task.has_sharded_data("train"),
-            # don't cache epoch iterators for sharded datasets
-            disable_iterator_cache=task.has_sharded_data("train"),
-        )
-    train_meter.stop()
-    logger.info("done training in {:.1f} seconds".format(train_meter.sum))
 
 
 def should_stop_early(cfg: DictConfig, valid_loss: float) -> bool:
@@ -349,177 +324,180 @@ def should_stop_early(cfg: DictConfig, valid_loss: float) -> bool:
             return False
 
 
-@metrics.aggregate("train")
-def train(
-    cfg: DictConfig, trainer: Trainer, task: tasks.FairseqTask, epoch_itr
-) -> Tuple[List[Optional[float]], bool]:
-    """Train the model for one epoch and return validation losses."""
-    # Initialize data iterator
-    itr = epoch_itr.next_epoch_itr(
-        fix_batches_to_gpus=cfg.distributed_training.fix_batches_to_gpus,
-        shuffle=(epoch_itr.next_epoch_idx > cfg.dataset.curriculum),
-    )
-    update_freq = (
-        cfg.optimization.update_freq[epoch_itr.epoch - 1]
-        if epoch_itr.epoch <= len(cfg.optimization.update_freq)
-        else cfg.optimization.update_freq[-1]
-    )
-    itr = iterators.GroupedIterator(itr, update_freq)
-    if cfg.common.tpu:
-        itr = utils.tpu_data_loader(itr)
-    progress = progress_bar.progress_bar(
-        itr,
-        log_format=cfg.common.log_format,
-        log_interval=cfg.common.log_interval,
-        epoch=epoch_itr.epoch,
-        tensorboard_logdir=(
-            cfg.common.tensorboard_logdir
-            if distributed_utils.is_master(cfg.distributed_training)
-            else None
-        ),
-        default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
-        wandb_project=(
-            cfg.common.wandb_project
-            if distributed_utils.is_master(cfg.distributed_training)
-            else None
-        ),
-        wandb_run_name=os.environ.get(
-            "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
-        ),
-        azureml_logging=(
-            cfg.common.azureml_logging
-            if distributed_utils.is_master(cfg.distributed_training)
-            else False
-        ),
-    )
-    progress.update_config(_flatten_config(cfg))
+# @metrics.aggregate("train")
+# def train(
+#     cfg: DictConfig, trainer: Trainer, task: tasks.FairseqTask, epoch_itr
+# ) -> Tuple[List[Optional[float]], bool]:
+#     """Train the model for one epoch and return validation losses."""
+#     # Initialize data iterator
+#     itr = epoch_itr.next_epoch_itr(
+#         fix_batches_to_gpus=cfg.distributed_training.fix_batches_to_gpus,
+#         shuffle=(epoch_itr.next_epoch_idx > cfg.dataset.curriculum),
+#     )
+#     update_freq = (
+#         cfg.optimization.update_freq[epoch_itr.epoch - 1]
+#         if epoch_itr.epoch <= len(cfg.optimization.update_freq)
+#         else cfg.optimization.update_freq[-1]
+#     )
+#     itr = iterators.GroupedIterator(itr, update_freq)
+#     if cfg.common.tpu:
+#         itr = utils.tpu_data_loader(itr)
+#     progress = progress_bar.progress_bar(
+#         itr,
+#         log_format=cfg.common.log_format,
+#         log_interval=cfg.common.log_interval,
+#         epoch=epoch_itr.epoch,
+#         tensorboard_logdir=(
+#             cfg.common.tensorboard_logdir
+#             if distributed_utils.is_master(cfg.distributed_training)
+#             else None
+#         ),
+#         default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
+#         wandb_project=(
+#             cfg.common.wandb_project
+#             if distributed_utils.is_master(cfg.distributed_training)
+#             else None
+#         ),
+#         wandb_run_name=os.environ.get(
+#             "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
+#         ),
+#         azureml_logging=(
+#             cfg.common.azureml_logging
+#             if distributed_utils.is_master(cfg.distributed_training)
+#             else False
+#         ),
+#     )
+#     progress.update_config(_flatten_config(cfg))
 
-    trainer.begin_epoch(epoch_itr.epoch)
+#     trainer.begin_epoch(epoch_itr.epoch)
 
-    valid_subsets = cfg.dataset.valid_subset.split(",")
-    should_stop = False
-    num_updates = trainer.get_num_updates()
-    for i, samples in enumerate(progress):
-        
-        with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
-            "train_step-%d" % i
-        ):
-            log_output = trainer.train_step(samples)
+#     valid_subsets = cfg.dataset.valid_subset.split(",")
+#     should_stop = False
+#     num_updates = trainer.get_num_updates()
+#     for i, samples in enumerate(progress):
+#         print(len(samples), len(progress))
+#         trainer.valid_step(sample)
+#         # import ipdb; ipdb.set_trace()
+#         # continue;
+#         # with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
+#         #     "train_step-%d" % i
+#         # ):
+#         #     log_output = trainer.train_step(samples)
 
-        if log_output is not None:  # not OOM, overflow, ...
-            # log mid-epoch stats
-            num_updates = trainer.get_num_updates()
-            if num_updates % cfg.common.log_interval == 0:
-                stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
-                progress.log(stats, tag="train_inner", step=num_updates)
+#         # if log_output is not None:  # not OOM, overflow, ...
+#         #     # log mid-epoch stats
+#         #     num_updates = trainer.get_num_updates()
+#         #     if num_updates % cfg.common.log_interval == 0:
+#         #         stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
+#         #         progress.log(stats, tag="train_inner", step=num_updates)
 
-                # reset mid-epoch stats after each log interval
-                # the end-of-epoch stats will still be preserved
-                metrics.reset_meters("train_inner")
+#         #         # reset mid-epoch stats after each log interval
+#         #         # the end-of-epoch stats will still be preserved
+#         #         metrics.reset_meters("train_inner")
 
-        end_of_epoch = not itr.has_next()
-        valid_losses, should_stop = validate_and_save(
-            cfg, trainer, task, epoch_itr, valid_subsets, end_of_epoch
-        )
+#         end_of_epoch = not itr.has_next()
+#         valid_losses, should_stop = validate_and_save(
+#             cfg, trainer, task, epoch_itr, valid_subsets, end_of_epoch
+#         )
 
-        if should_stop:
-            break
+#         if should_stop:
+#             break
 
-    # log end-of-epoch stats
-    logger.info("end of epoch {} (average epoch stats below)".format(epoch_itr.epoch))
-    stats = get_training_stats(metrics.get_smoothed_values("train"))
-    progress.print(stats, tag="train", step=num_updates)
+#     # log end-of-epoch stats
+#     logger.info("end of epoch {} (average epoch stats below)".format(epoch_itr.epoch))
+#     stats = get_training_stats(metrics.get_smoothed_values("train"))
+#     progress.print(stats, tag="train", step=num_updates)
 
-    # reset epoch-level meters
-    metrics.reset_meters("train")
-    return valid_losses, should_stop
-
-
-def _flatten_config(cfg: DictConfig):
-    config = OmegaConf.to_container(cfg)
-    # remove any legacy Namespaces and replace with a single "args"
-    namespace = None
-    for k, v in list(config.items()):
-        if isinstance(v, argparse.Namespace):
-            namespace = v
-            del config[k]
-    if namespace is not None:
-        config["args"] = vars(namespace)
-    return config
+#     # reset epoch-level meters
+#     metrics.reset_meters("train")
+#     return valid_losses, should_stop
 
 
-def validate_and_save(
-    cfg: DictConfig,
-    trainer: Trainer,
-    task: tasks.FairseqTask,
-    epoch_itr,
-    valid_subsets: List[str],
-    end_of_epoch: bool,
-) -> Tuple[List[Optional[float]], bool]:
-    num_updates = trainer.get_num_updates()
-    max_update = cfg.optimization.max_update or math.inf
-
-    # Stopping conditions (and an additional one based on validation loss later
-    # on)
-    should_stop = False
-    if num_updates >= max_update:
-        should_stop = True
-        logger.info(
-            f"Stopping training due to "
-            f"num_updates: {num_updates} >= max_update: {max_update}"
-        )
-
-    training_time_hours = trainer.cumulative_training_time() / (60 * 60)
-    if (
-        cfg.optimization.stop_time_hours > 0
-        and training_time_hours > cfg.optimization.stop_time_hours
-    ):
-        should_stop = True
-        logger.info(
-            f"Stopping training due to "
-            f"cumulative_training_time: {training_time_hours} > "
-            f"stop_time_hours: {cfg.optimization.stop_time_hours} hour(s)"
-        )
-
-    do_save = (
-        (end_of_epoch and epoch_itr.epoch % cfg.checkpoint.save_interval == 0)
-        or should_stop
-        or (
-            cfg.checkpoint.save_interval_updates > 0
-            and num_updates > 0
-            and num_updates % cfg.checkpoint.save_interval_updates == 0
-            and num_updates >= cfg.dataset.validate_after_updates
-        )
-    )
-    do_validate = (
-        (not end_of_epoch and do_save)  # validate during mid-epoch saves
-        or (end_of_epoch and epoch_itr.epoch % cfg.dataset.validate_interval == 0)
-        or should_stop
-        or (
-            cfg.dataset.validate_interval_updates > 0
-            and num_updates > 0
-            and num_updates % cfg.dataset.validate_interval_updates == 0
-        )
-    ) and not cfg.dataset.disable_validation
-    valid_losses = [None]
-    if do_validate:
-        valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
-
-    should_stop |= should_stop_early(cfg, valid_losses[0])
-
-    # Save checkpoint
-    if do_save or should_stop:
-        checkpoint_utils.save_checkpoint(
-            cfg.checkpoint, trainer, epoch_itr, valid_losses[0], training_finished=should_stop,
-        )
-
-    trainer.reset_dummy_batch(epoch_itr.first_batch)
-    return valid_losses, should_stop
+# def _flatten_config(cfg: DictConfig):
+#     config = OmegaConf.to_container(cfg)
+#     # remove any legacy Namespaces and replace with a single "args"
+#     namespace = None
+#     for k, v in list(config.items()):
+#         if isinstance(v, argparse.Namespace):
+#             namespace = v
+#             del config[k]
+#     if namespace is not None:
+#         config["args"] = vars(namespace)
+#     return config
 
 
-def get_training_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
-    stats["wall"] = round(metrics.get_meter("default", "wall").elapsed_time, 0)
-    return stats
+# def validate_and_save(
+#     cfg: DictConfig,
+#     trainer: Trainer,
+#     task: tasks.FairseqTask,
+#     epoch_itr,
+#     valid_subsets: List[str],
+#     end_of_epoch: bool,
+# ) -> Tuple[List[Optional[float]], bool]:
+#     num_updates = trainer.get_num_updates()
+#     max_update = cfg.optimization.max_update or math.inf
+
+#     # Stopping conditions (and an additional one based on validation loss later
+#     # on)
+#     should_stop = False
+#     if num_updates >= max_update:
+#         should_stop = True
+#         logger.info(
+#             f"Stopping training due to "
+#             f"num_updates: {num_updates} >= max_update: {max_update}"
+#         )
+
+#     training_time_hours = trainer.cumulative_training_time() / (60 * 60)
+#     if (
+#         cfg.optimization.stop_time_hours > 0
+#         and training_time_hours > cfg.optimization.stop_time_hours
+#     ):
+#         should_stop = True
+#         logger.info(
+#             f"Stopping training due to "
+#             f"cumulative_training_time: {training_time_hours} > "
+#             f"stop_time_hours: {cfg.optimization.stop_time_hours} hour(s)"
+#         )
+
+#     do_save = (
+#         (end_of_epoch and epoch_itr.epoch % cfg.checkpoint.save_interval == 0)
+#         or should_stop
+#         or (
+#             cfg.checkpoint.save_interval_updates > 0
+#             and num_updates > 0
+#             and num_updates % cfg.checkpoint.save_interval_updates == 0
+#             and num_updates >= cfg.dataset.validate_after_updates
+#         )
+#     )
+#     do_validate = (
+#         (not end_of_epoch and do_save)  # validate during mid-epoch saves
+#         or (end_of_epoch and epoch_itr.epoch % cfg.dataset.validate_interval == 0)
+#         or should_stop
+#         or (
+#             cfg.dataset.validate_interval_updates > 0
+#             and num_updates > 0
+#             and num_updates % cfg.dataset.validate_interval_updates == 0
+#         )
+#     ) and not cfg.dataset.disable_validation
+#     valid_losses = [None]
+#     if do_validate:
+#         valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
+
+#     should_stop |= should_stop_early(cfg, valid_losses[0])
+
+#     # Save checkpoint
+#     if do_save or should_stop:
+#         checkpoint_utils.save_checkpoint(
+#             cfg.checkpoint, trainer, epoch_itr, valid_losses[0], training_finished=should_stop,
+#         )
+
+#     trainer.reset_dummy_batch(epoch_itr.first_batch)
+#     return valid_losses, should_stop
+
+
+# def get_training_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
+#     stats["wall"] = round(metrics.get_meter("default", "wall").elapsed_time, 0)
+#     return stats
 
 
 def validate(
@@ -582,6 +560,7 @@ def validate(
         # don't pollute other aggregators (e.g., train meters)
         with metrics.aggregate(new_root=True) as agg:
             for sample in progress:
+                # print(">", flush=True)
                 trainer.valid_step(sample)
         # log validation stats
         stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())
@@ -612,16 +591,16 @@ def cli_main(
 
     cfg = convert_namespace_to_omegaconf(args)
 
-    
+    main(cfg)
     # srun --label already creates ntasks number of parallel runs. ipdb will show all of them. Hence ntasks in salloc is very imp.
     # Path: dense
-    if args.profile:
-        with torch.cuda.profiler.profile():
-            with torch.autograd.profiler.emit_nvtx():
-                # Path: dense
-                distributed_utils.call_main(cfg, main)
-    else:
-        distributed_utils.call_main(cfg, main)
+    # if args.profile:
+    #     with torch.cuda.profiler.profile():
+    #         with torch.autograd.profiler.emit_nvtx():
+    #             # Path: dense
+    #             distributed_utils.call_main(cfg, main)
+    # else:
+    #     distributed_utils.call_main(cfg, main)
 
 
 if __name__ == "__main__":

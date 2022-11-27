@@ -840,7 +840,7 @@ class Trainer(object):
             self.criterion.eval()
 
             sample, is_dummy_batch = self._prepare_sample(sample)
-
+            import ipdb; ipdb.set_trace()
             try:
                 if (getattr(self.cfg.model, 'moe_freq', 0) > 0 or getattr(self.cfg.model, "desynchronize", False) and
                     getattr(self.cfg.dataset, 'batch_size', None) is not None):

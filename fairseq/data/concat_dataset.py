@@ -88,6 +88,8 @@ class ConcatDataset(FairseqDataset):
         """
         Returns indices sorted by length. So less padding is needed.
         """
+        return np.arange(len(self))
+        # import ipdb; ipdb.set_trace()
         if isinstance(self.sizes, np.ndarray) and len(self.sizes.shape) > 1:
             # special handling for concatenating lang_pair_datasets
             indices = np.arange(len(self))

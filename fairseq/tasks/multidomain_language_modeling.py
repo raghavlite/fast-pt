@@ -215,6 +215,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         if targets is None:
             targets = ["future"]
         self.targets = targets
+        self.domain_datasets = {}
 
     @classmethod
     def setup_dictionary(cls, args, **kwargs):
@@ -341,61 +342,12 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
             fixed_pad_length = self.args.tokens_per_sample
 
         pad_to_bsz = None
-        if self.args.pad_to_fixed_bsz:
-            pad_to_bsz = self.args.batch_size_valid if 'valid' in split else self.args.batch_size
 
-        sorted(train_domains)
+        
         sorted(eval_domains)
         domain_datasets = []
-        if torch.distributed.is_initialized():
-            if not self.args.unbalanced:
-                if split in self.args.train_subset.split(','):
-                    gpus  = range(torch.distributed.get_world_size())
-                    if len(gpus) >= 8:
-                        num_gpus_per_domain = torch.distributed.get_world_size() // 8
-                    else:
-                        num_gpus_per_domain = 1
-                    gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
-                    mappings = {}
-                    for ix, gpus in enumerate(gpu_mappings):
-                        for gpu in gpus:
-                            mappings[gpu] = ix
-                    domain_id = mappings[torch.distributed.get_rank(torch.distributed.group.WORLD)]
-                    train_domain = train_domains[domain_id]
-                    domains = [(domain_id, train_domain)]
-                else:
-                    domains = enumerate(eval_domains)
-            else:
-                domains = enumerate(train_domains)
-        # elif torch.distributed.is_initialized() and self.args.domain_parallel:
-        #     gpus = range(torch.distributed.get_world_size())
-        #     if len(gpus) >= 8:
-        #         num_gpus_per_domain = torch.distributed.get_world_size() // 8
-        #     else:
-        #         num_gpus_per_domain = 1
-        #     gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
-        #     mappings = {}
-        #     for ix, gpus in enumerate(gpu_mappings):
-        #         for gpu in gpus:
-        #             mappings[gpu] = ix
 
-        #     domain_id = mappings[torch.distributed.get_rank(torch.distributed.group.WORLD)]
-        #     train_domain = train_domains[domain_id]
-        #     domains = [(domain_id, train_domain)] if split in self.args.train_subset.split(',') else enumerate(eval_domains)
-        else:
-            domains = [(0, eval_domains[0])]
-
-        # if split in self.args.train_subset.split(',') in len(split.split('_')) > 1 and split.split('_')[1] != train_domain:
-            # return
-
-        # def dedup(seq):
-        #     seen = set()
-        #     seen_add = seen.add
-        #     return [x for x in seq if not (x in seen or seen_add(x))]
-
-        # unique_domains = dedup(train_domains + eval_domains)
-
-
+        domains = [(0, eval_domains[0])]
         domain_datasets = []
     
         for domain_id, domain in domains:
@@ -453,7 +405,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
                     src_vocab=self.dictionary,
                     tgt_vocab=self.output_dictionary,
                     add_eos_for_other_targets=add_eos_for_other_targets,
-                    shuffle=True,
+                    shuffle=False,
                     targets=self.targets,
                     fixed_pad_length=fixed_pad_length,
                     pad_to_bsz=pad_to_bsz,
@@ -499,72 +451,21 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         )
 
 
-        if split in self.args.train_subset.split(','):
-            if self.args.recluster_data:
-                clusters = defaultdict(list)
+        
+        dataset = ConcatDataset(domain_datasets)
 
-                for dataset in tqdm(domain_datasets, disable=torch.distributed.get_rank() != 0):
-                    indices = defaultdict(list)
-                    loader = DataLoader(dataset, batch_size=16, num_workers=16)
-                    for item in trange(loader, disable=torch.distributed.get_rank() != 0):
-                        indices[item['cluster']].extend(item['id'])
-                    for cluster, idxs in indices.items():
-                        clusters[cluster].append(SubsetDataset(dataset, idxs))
-
-                domain_datasets_ = []
-                for cluster, ds in domain_datasets.items():
-                    domain_datasets_.append(ConcatDataset(ds))
-                domain_datasets = domain_datasets_
-            if not self.args.unbalanced:
-                ds = OrderedDict()
-                for i, d in enumerate(domain_datasets):
-                    ds[i] = d
-                if self.args.gpu_mappings is not None:
-                    gpu_mappings = ast.literal_eval(self.args.gpu_mappings)
-                else:
-                    gpu_mappings = None
-                lens = torch.tensor([len(d) for d in domain_datasets]).cuda()
-                gather_lens = [torch.ones_like(lens[0]).cuda() for _ in range(torch.distributed.get_world_size())]
-                torch.distributed.all_gather(gather_lens, lens)
-                gather_lens = [x.item() for x in gather_lens]
-                for ix, item in enumerate(gather_lens):
-                    logger.info(
-                    "loaded total {} blocks on GPU {}".format(
-                    item, ix
-                )
-            )
-                # ! This makes each dataset circular continuous for sampling equal number of minibatches from each dataset.
-
-                dataset = MultiCorpusSampledDataset(ds, gather_lens, gpu_mappings=gpu_mappings)
-            else:
-                dataset = ConcatDataset(domain_datasets)
-        else:
-
-            ds = []
-            size_ratio = np.array([1.0] * len(domain_datasets))
-            for i, d in enumerate(domain_datasets):
-                d = ResamplingDataset(
-                    domain_datasets[i],
-                    size_ratio=size_ratio[i],
-                    seed=self.args.seed,
-                    epoch=epoch,
-                    replace=size_ratio[i] >= 1.0,
-                )
-                ds.append(d)
-            dataset = ConcatDataset(ds)
-
-
-            # domain_splits = [split]
-            # for domain_id, domain_dataset in enumerate(domain_datasets):
-            #     split_name = split + "_" + eval_domains[domain_id]
-            #     domain_splits.append(split_name)
-            #     self.datasets[split_name] = domain_dataset
-            # from fairseq import pdb; pdb.set_trace()
-            # # [TODO]: This is hacky for now to print validation ppl for each
-            # # language individually. Maybe need task API changes to allow it
-            # # in more generic ways.
+        # domain_splits = [split]
+        # for domain_id, domain_dataset in enumerate(domain_datasets):
+        #     split_name = split + "_" + eval_domains[domain_id]
+        #     domain_splits.append(split_name)
+        #     self.datasets[split_name] = domain_dataset
+        # from fairseq import pdb; pdb.set_trace()
+        # # [TODO]: This is hacky for now to print validation ppl for each
+        # # language individually. Maybe need task API changes to allow it
+        # # in more generic ways.
 
         # if self.args.domain_parallel:
+        self.domain_datasets[split]=domain_datasets
         self.datasets[split] = dataset
         print("Self datasets", self.datasets)
         # else:

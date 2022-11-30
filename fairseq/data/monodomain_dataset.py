@@ -44,18 +44,33 @@ def collate(samples, pad_idx, eos_idx, src_domain_idx, fixed_pad_length=None, pa
         target = merge("target", is_target_list)
     else:
         target = src_tokens
-
-    return {
-        "id": torch.LongTensor([s["id"] for s in samples]),
-        "nsentences": len(samples),
-        "ntokens": sum(len(s["source"]) for s in samples),
-        "net_input": {
-            "src_tokens": src_tokens,
-            "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
-            "src_domain_idx": src_domain_idx
-        },
-        "target": target
-    }
+    # assert False
+    if("IRL_losses" in samples[0] and samples[0]["IRL_losses"] is not None):
+        IRL_losses = merge("IRL_losses")
+        return {
+            "id": torch.LongTensor([s["id"] for s in samples]),
+            "nsentences": len(samples),
+            "ntokens": sum(len(s["source"]) for s in samples),
+            "net_input": {
+                "src_tokens": src_tokens,
+                "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
+                "src_domain_idx": src_domain_idx,
+                "IRL_losses": IRL_losses
+            },
+            "target": target
+        }
+    else:
+        return {
+            "id": torch.LongTensor([s["id"] for s in samples]),
+            "nsentences": len(samples),
+            "ntokens": sum(len(s["source"]) for s in samples),
+            "net_input": {
+                "src_tokens": src_tokens,
+                "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
+                "src_domain_idx": src_domain_idx
+            },
+            "target": target
+        }
 
 
 class MonodomainDataset(FairseqDataset):
@@ -106,6 +121,7 @@ class MonodomainDataset(FairseqDataset):
         if targets is not None and len(targets) == 0:
             targets = None
         self.targets = targets
+        self.IRL_losses = None
 
     def __getitem__(self, index):
         if self.targets is not None:
@@ -125,7 +141,11 @@ class MonodomainDataset(FairseqDataset):
             source = self.dataset[index]
             target = None
         source, target = self._maybe_add_bos(source, target)
-        res = {"id": index, "source": source, "target": target}
+        if(self.IRL_losses is None):
+            res = {"id": index, "source": source, "target": target}
+        else:
+            res = {"id": index, "source": source, "target": target, "IRL_losses":self.IRL_losses[index]}
+        
         return res
 
     def __len__(self):
@@ -253,6 +273,7 @@ class MonodomainDataset(FairseqDataset):
             order = [np.random.RandomState(seed=torch.distributed.get_rank()).permutation(len(self))]
         else:
             order = [np.arange(len(self))]
+
         order.append(self.sizes)
         return np.lexsort(order)
 

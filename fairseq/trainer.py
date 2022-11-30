@@ -840,7 +840,7 @@ class Trainer(object):
             self.criterion.eval()
 
             sample, is_dummy_batch = self._prepare_sample(sample)
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace()
             try:
                 if (getattr(self.cfg.model, 'moe_freq', 0) > 0 or getattr(self.cfg.model, "desynchronize", False) and
                     getattr(self.cfg.dataset, 'batch_size', None) is not None):
@@ -882,7 +882,7 @@ class Trainer(object):
                 ignore=is_dummy_batch,
             )
         # log validation stats
-        logging_output = self._reduce_and_log_stats(logging_outputs, sample_size)
+        # logging_output = self._reduce_and_log_stats(logging_outputs, sample_size)
         return logging_output
 
     def zero_grad(self):

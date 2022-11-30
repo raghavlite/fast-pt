@@ -219,6 +219,7 @@ def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
             "can not be specified together: " + str(cfg)
             )
     # import ipdb; ipdb.set_trace()
+    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_IL/checkpoint_last.pt"
     extra_state = trainer.load_checkpoint(
         checkpoint_path,
         reset_optimizer,
@@ -235,19 +236,19 @@ def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
     ):
         save_checkpoint.best = extra_state["best"]
 
-    if extra_state is not None and not reset_dataloader:
-        # restore iterator from checkpoint
-        itr_state = extra_state["train_iterator"]
-        epoch_itr = trainer.get_train_iterator(
-            epoch=itr_state["epoch"], load_dataset=True, **passthrough_args
-        )
-        epoch_itr.load_state_dict(itr_state)
-    else:
-        epoch_itr = trainer.get_train_iterator(
-            epoch=1, load_dataset=True, **passthrough_args
-        )
-
-    trainer.lr_step(epoch_itr.epoch)
+    # if extra_state is not None and not reset_dataloader:
+    #     # restore iterator from checkpoint
+    #     itr_state = extra_state["train_iterator"]
+    #     epoch_itr = trainer.get_train_iterator(
+    #         epoch=itr_state["epoch"], load_dataset=True, **passthrough_args
+    #     )
+    #     epoch_itr.load_state_dict(itr_state)
+    # else:
+    #     epoch_itr = trainer.get_train_iterator(
+    #         epoch=1, load_dataset=True, **passthrough_args
+    #     )
+    epoch_itr=None
+    trainer.lr_step(1)
 
     return extra_state, epoch_itr
 

@@ -83,25 +83,6 @@ def main(cfg: FairseqConfig) -> None:
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
 
-    if('IRL' in cfg.task._name):
-        IRL_state = checkpoint_utils.load_checkpoint_to_cpu(
-                    "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_2_GPUs_transformer_lm_gpt3_small_aa/checkpoint_best.pt", 
-                    load_on_all_ranks=False, 
-                    moe_freq=0,
-                    desynchronize=False
-                )
-        IRL_state = distributed_utils.broadcast_object(
-                    IRL_state,
-                    src_rank=0,
-                    group=distributed_utils.get_data_parallel_group(),
-                    dist_device=torch.device("cuda"),
-                )
-        task.set_IRL_state(IRL_state)
-        # setting increased abtch size
-        cfg.dataset.batch_size=10*cfg.dataset.batch_size
-
-    
-
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in cfg.dataset.valid_subset.split(","):
         task.load_dataset(valid_sub_split, combine=False, epoch=1)
@@ -272,17 +253,18 @@ def main(cfg: FairseqConfig) -> None:
             cfg.dataset.batch_size,
         )
     )
-    # import ipdb; ipdb.set_trace()
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
-    extra_state, epoch_itr = checkpoint_utils.load_checkpoint(
-        cfg.checkpoint,
-        trainer,
-        # don't cache epoch iterators for sharded datasets
-        disable_iterator_cache=task.has_sharded_data("train"),
+    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_IL/checkpoint_last.pt"
+    extra_state = trainer.load_checkpoint(
+        checkpoint_path,
+        reset_optimizer=True,
+        reset_lr_scheduler=True,
+        optimizer_overrides=True,
+        reset_meters=True,
     )
-    
+
     if getattr(cfg.model, "adaptation", False):
         for x,p in model.named_parameters():
             if hasattr(p, "expert"):
@@ -291,7 +273,7 @@ def main(cfg: FairseqConfig) -> None:
 
     valid_subsets = cfg.dataset.valid_subset.split(",")
     end_of_epoch=True
-    valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
+    valid_losses = validate(cfg, trainer, task, None, valid_subsets)
     print(valid_losses)
 
 
@@ -324,180 +306,6 @@ def should_stop_early(cfg: DictConfig, valid_loss: float) -> bool:
             return False
 
 
-# @metrics.aggregate("train")
-# def train(
-#     cfg: DictConfig, trainer: Trainer, task: tasks.FairseqTask, epoch_itr
-# ) -> Tuple[List[Optional[float]], bool]:
-#     """Train the model for one epoch and return validation losses."""
-#     # Initialize data iterator
-#     itr = epoch_itr.next_epoch_itr(
-#         fix_batches_to_gpus=cfg.distributed_training.fix_batches_to_gpus,
-#         shuffle=(epoch_itr.next_epoch_idx > cfg.dataset.curriculum),
-#     )
-#     update_freq = (
-#         cfg.optimization.update_freq[epoch_itr.epoch - 1]
-#         if epoch_itr.epoch <= len(cfg.optimization.update_freq)
-#         else cfg.optimization.update_freq[-1]
-#     )
-#     itr = iterators.GroupedIterator(itr, update_freq)
-#     if cfg.common.tpu:
-#         itr = utils.tpu_data_loader(itr)
-#     progress = progress_bar.progress_bar(
-#         itr,
-#         log_format=cfg.common.log_format,
-#         log_interval=cfg.common.log_interval,
-#         epoch=epoch_itr.epoch,
-#         tensorboard_logdir=(
-#             cfg.common.tensorboard_logdir
-#             if distributed_utils.is_master(cfg.distributed_training)
-#             else None
-#         ),
-#         default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
-#         wandb_project=(
-#             cfg.common.wandb_project
-#             if distributed_utils.is_master(cfg.distributed_training)
-#             else None
-#         ),
-#         wandb_run_name=os.environ.get(
-#             "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
-#         ),
-#         azureml_logging=(
-#             cfg.common.azureml_logging
-#             if distributed_utils.is_master(cfg.distributed_training)
-#             else False
-#         ),
-#     )
-#     progress.update_config(_flatten_config(cfg))
-
-#     trainer.begin_epoch(epoch_itr.epoch)
-
-#     valid_subsets = cfg.dataset.valid_subset.split(",")
-#     should_stop = False
-#     num_updates = trainer.get_num_updates()
-#     for i, samples in enumerate(progress):
-#         print(len(samples), len(progress))
-#         trainer.valid_step(sample)
-#         # import ipdb; ipdb.set_trace()
-#         # continue;
-#         # with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
-#         #     "train_step-%d" % i
-#         # ):
-#         #     log_output = trainer.train_step(samples)
-
-#         # if log_output is not None:  # not OOM, overflow, ...
-#         #     # log mid-epoch stats
-#         #     num_updates = trainer.get_num_updates()
-#         #     if num_updates % cfg.common.log_interval == 0:
-#         #         stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
-#         #         progress.log(stats, tag="train_inner", step=num_updates)
-
-#         #         # reset mid-epoch stats after each log interval
-#         #         # the end-of-epoch stats will still be preserved
-#         #         metrics.reset_meters("train_inner")
-
-#         end_of_epoch = not itr.has_next()
-#         valid_losses, should_stop = validate_and_save(
-#             cfg, trainer, task, epoch_itr, valid_subsets, end_of_epoch
-#         )
-
-#         if should_stop:
-#             break
-
-#     # log end-of-epoch stats
-#     logger.info("end of epoch {} (average epoch stats below)".format(epoch_itr.epoch))
-#     stats = get_training_stats(metrics.get_smoothed_values("train"))
-#     progress.print(stats, tag="train", step=num_updates)
-
-#     # reset epoch-level meters
-#     metrics.reset_meters("train")
-#     return valid_losses, should_stop
-
-
-# def _flatten_config(cfg: DictConfig):
-#     config = OmegaConf.to_container(cfg)
-#     # remove any legacy Namespaces and replace with a single "args"
-#     namespace = None
-#     for k, v in list(config.items()):
-#         if isinstance(v, argparse.Namespace):
-#             namespace = v
-#             del config[k]
-#     if namespace is not None:
-#         config["args"] = vars(namespace)
-#     return config
-
-
-# def validate_and_save(
-#     cfg: DictConfig,
-#     trainer: Trainer,
-#     task: tasks.FairseqTask,
-#     epoch_itr,
-#     valid_subsets: List[str],
-#     end_of_epoch: bool,
-# ) -> Tuple[List[Optional[float]], bool]:
-#     num_updates = trainer.get_num_updates()
-#     max_update = cfg.optimization.max_update or math.inf
-
-#     # Stopping conditions (and an additional one based on validation loss later
-#     # on)
-#     should_stop = False
-#     if num_updates >= max_update:
-#         should_stop = True
-#         logger.info(
-#             f"Stopping training due to "
-#             f"num_updates: {num_updates} >= max_update: {max_update}"
-#         )
-
-#     training_time_hours = trainer.cumulative_training_time() / (60 * 60)
-#     if (
-#         cfg.optimization.stop_time_hours > 0
-#         and training_time_hours > cfg.optimization.stop_time_hours
-#     ):
-#         should_stop = True
-#         logger.info(
-#             f"Stopping training due to "
-#             f"cumulative_training_time: {training_time_hours} > "
-#             f"stop_time_hours: {cfg.optimization.stop_time_hours} hour(s)"
-#         )
-
-#     do_save = (
-#         (end_of_epoch and epoch_itr.epoch % cfg.checkpoint.save_interval == 0)
-#         or should_stop
-#         or (
-#             cfg.checkpoint.save_interval_updates > 0
-#             and num_updates > 0
-#             and num_updates % cfg.checkpoint.save_interval_updates == 0
-#             and num_updates >= cfg.dataset.validate_after_updates
-#         )
-#     )
-#     do_validate = (
-#         (not end_of_epoch and do_save)  # validate during mid-epoch saves
-#         or (end_of_epoch and epoch_itr.epoch % cfg.dataset.validate_interval == 0)
-#         or should_stop
-#         or (
-#             cfg.dataset.validate_interval_updates > 0
-#             and num_updates > 0
-#             and num_updates % cfg.dataset.validate_interval_updates == 0
-#         )
-#     ) and not cfg.dataset.disable_validation
-#     valid_losses = [None]
-#     if do_validate:
-#         valid_losses = validate(cfg, trainer, task, epoch_itr, valid_subsets)
-
-#     should_stop |= should_stop_early(cfg, valid_losses[0])
-
-#     # Save checkpoint
-#     if do_save or should_stop:
-#         checkpoint_utils.save_checkpoint(
-#             cfg.checkpoint, trainer, epoch_itr, valid_losses[0], training_finished=should_stop,
-#         )
-
-#     trainer.reset_dummy_batch(epoch_itr.first_batch)
-#     return valid_losses, should_stop
-
-
-# def get_training_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
-#     stats["wall"] = round(metrics.get_meter("default", "wall").elapsed_time, 0)
-#     return stats
 
 
 def validate(
@@ -513,73 +321,69 @@ def validate(
         # set fixed seed for every validation
         utils.set_torch_seed(cfg.dataset.fixed_validation_seed)
 
-    trainer.begin_valid_epoch(epoch_itr.epoch)
+    trainer.begin_valid_epoch(1)
     valid_losses = []
-    for subset in subsets:
+    subset = subsets[0]
 
-        logger.info('begin validation on "{}" subset on rank {}'.format(
-            subset, torch.distributed.get_rank()))
+    logger.info('begin validation on "{}" subset on rank {}'.format(
+        subset, 0))
 
-        # Initialize data iterator
-        itr = trainer.get_valid_iterator(subset).next_epoch_itr(
-            shuffle=False, set_dataset_epoch=False  # use a fixed valid set
-        )
-        if cfg.common.tpu:
-            itr = utils.tpu_data_loader(itr)
-        
-        logger.info('got valid iterator on "{}" subset on rank {}'.format(
-                subset,
-                torch.distributed.get_rank()
-            )
-        )
+    # Initialize data iterator
+    itr = trainer.get_valid_iterator(subset).next_epoch_itr(
+        shuffle=False, set_dataset_epoch=False  # use a fixed valid set
+    )
 
-        progress = progress_bar.progress_bar(
-            itr,
-            log_format=cfg.common.log_format,
-            log_interval=cfg.common.log_interval,
-            epoch=epoch_itr.epoch,
-            prefix=f"valid on '{subset}' subset",
-            tensorboard_logdir=(
-                cfg.common.tensorboard_logdir
-                if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
-                else None
-            ),
-            default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
-            wandb_project=(
-                cfg.common.wandb_project
-                if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
-                else None
-            ),
-            wandb_run_name=os.environ.get(
-                "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
-            ),
-        )
-        logger.info('Begin looping over validation "{}" subset with length "{}"'.format(subset, len(progress)))
+    # create a new root metrics aggregator so validation metrics
+    # don't pollute other aggregators (e.g., train meters)
+    kkk=0
+    loss_array = []
+    examples_array = []
+    count=0
+    
+    with metrics.aggregate(new_root=True) as agg:
+        for idx2, sample in enumerate(itr):
+            if(kkk<100 or kkk%1000==0):
+                print(f"### {kkk} of {len(itr)}", flush=True)
+            kkk+=1
 
-        # create a new root metrics aggregator so validation metrics
-        # don't pollute other aggregators (e.g., train meters)
-        with metrics.aggregate(new_root=True) as agg:
-            for sample in progress:
-                # print(">", flush=True)
-                trainer.valid_step(sample)
+            # print(">", flush=True)
+            stats = trainer.valid_step(sample)
+            loss_array.append(stats['loss'].detach().cpu())
+            
+            examples_array.append(torch.clone(sample['net_input']['src_tokens'].reshape(-1,1024)))
+            # if(kkk>5):
+            #     break;   
+    all_examples = torch.cat(examples_array).view(-1, 1024)
+    all_losses = torch.cat(loss_array).view(-1, 1024)
+    
+    assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
+    torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
+    torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
+    try:
+        for idx1 in range(len(all_examples)):
+            assert (all_examples[idx1]==trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+    except:
+        assert idx1 == len(all_examples)-1
+        assert (all_examples[idx1][:len(trainer.task.domain_datasets[subset][0][idx1]['source'])] == trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+    import ipdb; ipdb.set_trace()
         # log validation stats
-        stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())
-        progress.print(stats, tag=subset, step=trainer.get_num_updates())
-        valid_losses.append(stats[cfg.checkpoint.best_checkpoint_metric])
-    return valid_losses
+        # print(stats['loss'].shape)
+        
+        
+    return 0
 
 
 def get_valid_stats(
     cfg: DictConfig, trainer: Trainer, stats: Dict[str, Any]
 ) -> Dict[str, Any]:
-    stats["num_updates"] = trainer.get_num_updates()
-    if hasattr(checkpoint_utils.save_checkpoint, "best"):
-        key = "best_{0}".format(cfg.checkpoint.best_checkpoint_metric)
-        best_function = max if cfg.checkpoint.maximize_best_checkpoint_metric else min
-        stats[key] = best_function(
-            checkpoint_utils.save_checkpoint.best,
-            stats[cfg.checkpoint.best_checkpoint_metric],
-        )
+    # stats["num_updates"] = trainer.get_num_updates()
+    # if hasattr(checkpoint_utils.save_checkpoint, "best"):
+    #     key = "best_{0}".format(cfg.checkpoint.best_checkpoint_metric)
+    #     best_function = max if cfg.checkpoint.maximize_best_checkpoint_metric else min
+    #     stats[key] = best_function(
+    #         checkpoint_utils.save_checkpoint.best,
+    #         stats[cfg.checkpoint.best_checkpoint_metric],
+    #     )
     return stats
 
 
@@ -594,6 +398,7 @@ def cli_main(
     main(cfg)
     # srun --label already creates ntasks number of parallel runs. ipdb will show all of them. Hence ntasks in salloc is very imp.
     # Path: dense
+
     # if args.profile:
     #     with torch.cuda.profiler.profile():
     #         with torch.autograd.profiler.emit_nvtx():

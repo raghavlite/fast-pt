@@ -26,8 +26,7 @@ class CrossEntropyCriterion(FairseqCriterion):
         self.sentence_avg = sentence_avg
         
 
-
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=False):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -42,7 +41,7 @@ class CrossEntropyCriterion(FairseqCriterion):
         )
         logging_output = {
             'is_training': model.training,
-            'rank': torch.distributed.get_rank(),
+            'rank': 0,
             "loss": loss.data,
             "ntokens": sample["ntokens"],
             "nsentences": sample["target"].size(0),
@@ -64,6 +63,7 @@ class CrossEntropyCriterion(FairseqCriterion):
         )
 
         return loss, loss
+
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:

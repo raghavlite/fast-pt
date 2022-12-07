@@ -76,8 +76,10 @@ def main(cfg: FairseqConfig) -> None:
     if distributed_utils.is_master(cfg.distributed_training):
         checkpoint_utils.verify_checkpoint_directory(cfg.checkpoint.save_dir)
 
+    # import ipdb; ipdb.set_trace()
     # Print args
     logger.info(cfg)
+    cfg.common.all_gather_list_size = 655360
 
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
@@ -99,114 +101,7 @@ def main(cfg: FairseqConfig) -> None:
     logger.info("task: {}".format(task.__class__.__name__))
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
-
-    if torch.distributed.is_initialized() and getattr(cfg.model, "desynchronize", False):
-        
-        
-        if getattr(cfg.model, "sync_type") == "none":
-            groups = [[x] for x in range(torch.distributed.get_world_size())]
-            
-        elif getattr(cfg.model, "sync_type") == "manual":
-            gps = getattr(cfg.model, "data_parallel_groups")
-            gps = gps.split()
-            gps = [gp.split(',') for gp in gps]
-            groups = [[int(x) for x in y] for y in gps]
-
-        process_groups = {}
-        for group in groups:
-            distributed_group = torch.distributed.new_group(group)
-            for item in group:
-                process_groups[item] = distributed_group
-
-
-        logger.info(f"Data Parallel Groups: {groups}")
-        process_group = process_groups[torch.distributed.get_rank(torch.distributed.group.WORLD)]
-        
-        if getattr(cfg.model, "untie_parameters"):
-            for x, p in model.named_parameters():
-
-                if getattr(cfg.model, "untie_parameters") == "transformer_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    if any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "expert_layers":
-                    if "expert_layers" in x:
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "expert_ffn":
-                    ffns = ['expert_fc1', 'expert_fc2', 'gate']
-                    if any(ffn in x for ffn in ffns):
-                        p.expert = True
-                        p.process_group = process_group
-
-
-                elif getattr(cfg.model, "untie_parameters") == "transformer_output":
-                    if "layers" in x or 'output_projection' in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "input_output":
-                    if "embed_tokens" in x or "embed_positions" in x or 'output_projection' in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "transformer":
-                    if "layers" in x:
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "transformer_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    if any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "feedforward":
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and 'expert' not in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "feedforward_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "feedforward_top":
-                    top_layer = list(range(0, getattr(cfg.model, "decoder_layers")))[-1]
-                    top_layer = [f"layers.{top_layer}"]
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and any(l in x for l in top_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "all":
-                    p.expert = True
-                    p.process_group = process_group
-                else:
-                    raise Exception("value for untie_parameters is bad.")
-    
-
-    if getattr(cfg.model, "adaptation", False):
-    #     # if not getattr(cfg.model, "untie_parameters"):
-    #     #     for layer in model.decoder.layers:
-    #     #         layer.add_adapter(1)
-    #     #     for x,p in model.named_parameters():
-    #     #         if not 'adapter' in x:
-    #     #             p.requires_grad = False
-         ffns = ['fc1', 'fc2']
-         for x,p in model.named_parameters():
-            if not any(ffn in x for ffn in ffns):
-                 p.requires_grad = False
-            else:
-                 p.requires_grad = True
-    
-    
+   
 
     logger.info(
         "num. shared model params: {} (num. trainable: {})".format(
@@ -256,7 +151,7 @@ def main(cfg: FairseqConfig) -> None:
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
-    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_IL/checkpoint_last.pt"
+    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_IL_120k/checkpoint_last.pt"
     extra_state = trainer.load_checkpoint(
         checkpoint_path,
         reset_optimizer=True,
@@ -342,33 +237,78 @@ def validate(
     
     with metrics.aggregate(new_root=True) as agg:
         for idx2, sample in enumerate(itr):
+            # if(True):
             if(kkk<100 or kkk%1000==0):
                 print(f"### {kkk} of {len(itr)}", flush=True)
             kkk+=1
 
             # print(">", flush=True)
             stats = trainer.valid_step(sample)
-            loss_array.append(stats['loss'].detach().cpu())
+            assert torch.sum(sample['net_input']['src_lengths'])==stats['ntokens']
             
-            examples_array.append(torch.clone(sample['net_input']['src_tokens'].reshape(-1,1024)))
-            # if(kkk>5):
-            #     break;   
-    all_examples = torch.cat(examples_array).view(-1, 1024)
-    all_losses = torch.cat(loss_array).view(-1, 1024)
-    
-    assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
-    torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
-    torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
-    try:
-        for idx1 in range(len(all_examples)):
-            assert (all_examples[idx1]==trainer.task.domain_datasets[subset][0][idx1]['source']).all()
-    except:
-        assert idx1 == len(all_examples)-1
-        assert (all_examples[idx1][:len(trainer.task.domain_datasets[subset][0][idx1]['source'])] == trainer.task.domain_datasets[subset][0][idx1]['source']).all()
-    import ipdb; ipdb.set_trace()
-        # log validation stats
-        # print(stats['loss'].shape)
+            torch.cuda.synchronize()
+            
+
+            len_list = [torch.tensor(0).cuda() for each in range(cfg.distributed_training.distributed_world_size)]
+            nsentences = torch.tensor(sample['nsentences'])
+            torch.distributed.all_gather(len_list, nsentences.cuda())    
+            max_size = max(len_list).item()
+            size_diff = max_size - nsentences
+            if size_diff:
+                padding_loss = torch.zeros(size_diff*sample['net_input']['src_tokens'].shape[1], dtype=torch.float).cuda()
+                stats['loss'] = torch.cat((stats['loss'], padding_loss))
+
+                padding_input_ids = torch.zeros(size_diff, sample['net_input']['src_tokens'].shape[1], dtype=torch.long)
+                sample['net_input']['src_tokens'] = torch.cat((sample['net_input']['src_tokens'], padding_input_ids))
+
+            
+            if(torch.distributed.get_rank()==0):
+
+                loss_list = [torch.zeros_like(stats['loss'], dtype=torch.float).cuda() for  _ in  range(cfg.distributed_training.distributed_world_size)]
+                torch.distributed.gather(stats['loss'], loss_list)
+            
+                input_list = [torch.zeros_like(sample['net_input']['src_tokens'], dtype=torch.long).cuda() for _ in  range(cfg.distributed_training.distributed_world_size)]
+                torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), input_list)
+
+                if(max(len_list)!=min(len_list)):
+                    loss_list = [each_val[:nsentences*sample['net_input']['src_tokens'].shape[1]] for nsentences, each_val in zip(len_list, loss_list)]
+                    input_list = [each_val[:nsentences] for nsentences, each_val in zip(len_list, input_list)]
+
+                loss_array.append(torch.cat(loss_list).detach().cpu())
+                examples_array.append(torch.cat(input_list, 0).detach().cpu())
+
+
+
+            else:
+                torch.distributed.gather(stats['loss'], None)
+                torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), None)
+
+
+            
+
+    if(torch.distributed.get_rank()==0):
+        all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
+        all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         
+        # !something wierd between domain_datasets and multi corpus data. we need to left shift once
+        all_examples = torch.roll(all_examples, -1, 0)
+        all_losses = torch.roll(all_losses, -1, 0)
+
+        # import ipdb; ipdb.set_trace()      
+        assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
+        torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
+        torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
+    
+
+        try:
+            for idx1 in range(len(all_examples)):
+                assert (all_examples[idx1]==trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+        except:
+            assert idx1 == len(all_examples)-1
+            assert (all_examples[idx1][:len(trainer.task.domain_datasets[subset][0][idx1]['source'])] == trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+
+        # log validation stats
+        # print(stats['loss'].shape)        
         
     return 0
 
@@ -395,18 +335,18 @@ def cli_main(
 
     cfg = convert_namespace_to_omegaconf(args)
 
-    main(cfg)
     # srun --label already creates ntasks number of parallel runs. ipdb will show all of them. Hence ntasks in salloc is very imp.
     # Path: dense
 
-    # if args.profile:
-    #     with torch.cuda.profiler.profile():
-    #         with torch.autograd.profiler.emit_nvtx():
-    #             # Path: dense
-    #             distributed_utils.call_main(cfg, main)
-    # else:
-    #     distributed_utils.call_main(cfg, main)
+    if args.profile:
+        with torch.cuda.profiler.profile():
+            with torch.autograd.profiler.emit_nvtx():
+                # Path: dense
+                distributed_utils.call_main(cfg, main)
+    else:
+        distributed_utils.call_main(cfg, main)
 
+    # main(cfg)
 
 if __name__ == "__main__":
     cli_main()

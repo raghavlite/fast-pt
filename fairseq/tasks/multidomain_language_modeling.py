@@ -6,6 +6,7 @@
 import logging
 import os
 from dataclasses import dataclass, field
+from fairseq.data import FairseqDataset, iterators
 from typing import Optional
 from collections import OrderedDict
 import ast
@@ -34,7 +35,8 @@ from fairseq.data import (
     SubsampleDataset,
     TruncatedDictionary,
     data_utils,
-    SubsetDataset
+    SubsetDataset,
+    iterators, FairseqDataset
 )
 from fairseq.data.indexed_dataset import get_available_dataset_impl
 from fairseq.data.shorten_dataset import maybe_shorten_dataset
@@ -349,10 +351,28 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
         domains = [(0, eval_domains[0])]
         domain_datasets = []
+
+        if torch.distributed.is_initialized():
+            gpus  = range(torch.distributed.get_world_size())
+            num_gpus_per_domain = len(gpus)
+            
+            gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
+            mappings = {}
+            for ix, gpus in enumerate(gpu_mappings):
+                for gpu in gpus:
+                    mappings[gpu] = ix
+            domain_id = len(self.domain_datasets)
+            eval_domain = eval_domains[domain_id]
+            domains = [(domain_id, eval_domain)]
+            
+        else:
+            domains = [(0, eval_domains[0])]
+
+
     
         for domain_id, domain in domains:
             # if('valid' not in split):
-            #     import ipdb; ipdb.set_trace()
+            
             split_path = os.path.join(data_path, domain, split)
             dataset = data_utils.load_indexed_dataset(
                 split_path, self.dictionary, self.args.dataset_impl, combine=combine
@@ -416,28 +436,8 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
                     tgt_domain_token=tgt_domain_token
                 )
 
-            if self.args.recluster_data and split in self.args.train_subset.split(','):
-                kmeans = MiniBatchKMeans(n_clusters=8)
-                svd = TruncatedSVD(n_components=64)
-                vectorizer = CountVectorizer(vocabulary=self.dictionary.symbols,
-                                            tokenizer=lambda x: x,
-                                            analyzer = lambda x:x,
-                                            preprocessor=lambda x: x)
-
-                subsets = []
-                pretrain_dataset = SubsampleDataset(domain_dataset, size_ratio=0.001)
-                text = []
-                for idx in trange(len(pretrain_dataset), disable=torch.distributed.get_rank() !=0):
-                    tt = self.dictionary.string(pretrain_dataset.__getitem__(idx)['source'])
-                    text.extend(tt.split('\n'))
-                vec = vectorizer.fit_transform(tqdm(text, disable=torch.distributed.get_rank() !=0))
-                vec = svd.fit_transform(vec)
-                kmeans.partial_fit(vec)
-
             domain_datasets.append(domain_dataset)
 
-        if self.args.recluster_data:
-            domain_datasets = [ClusterDataset(domain_dataset, vectorizer, svd, kmeans) for domain_dataset in domain_datasets]
 
         dataset_lengths = np.array(
             [len(d) for d in domain_datasets],
@@ -450,9 +450,26 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
             )
         )
 
+        if torch.distributed.is_initialized():
+            ds = OrderedDict()
+            for i, d in enumerate(domain_datasets):
+                ds[i] = d
+            if self.args.gpu_mappings is not None:
+                gpu_mappings = ast.literal_eval(self.args.gpu_mappings)
+            else:
+                gpu_mappings = None
+            lens = torch.tensor([len(d) for d in domain_datasets]).cuda()
+            
+            gather_lens = [torch.ones_like(lens[0]).cuda() for _ in range(torch.distributed.get_world_size())]
+            torch.distributed.all_gather(gather_lens, lens)
+            gather_lens = [x.item() for x in gather_lens]
+            for ix, item in enumerate(gather_lens):
+                logger.info( "loaded total {} blocks on GPU {}".format(item, ix))
+                dataset = MultiCorpusSampledDataset(ds, gather_lens, gpu_mappings=gpu_mappings)
+        else:
+            dataset = ConcatDataset(domain_datasets)
 
-        
-        dataset = ConcatDataset(domain_datasets)
+        # ! changed ordered_indices ConcatDataset and MonodomainDataset
 
         # domain_splits = [split]
         # for domain_id, domain_dataset in enumerate(domain_datasets):
@@ -465,7 +482,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         # # in more generic ways.
 
         # if self.args.domain_parallel:
-        self.domain_datasets[split]=domain_datasets
+        self.domain_datasets[split] = domain_datasets
         self.datasets[split] = dataset
         print("Self datasets", self.datasets)
         # else:
@@ -478,6 +495,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         #         dataset.sizes,
         #     ],
         # )
+
 
     def eval_lm_dataloader(
         self,

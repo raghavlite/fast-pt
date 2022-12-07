@@ -85,6 +85,7 @@ class MultiCorpusSampledDataset(FairseqDataset):
             dataset = self.datasets[selected_key]
             self._ordered_indices = dataset.ordered_indices()
 
+        # ! here we changed the order indices.
         return np.arange(len(self))
 
     def _map_index_to_dataset(self, key: int, index: int):
@@ -123,6 +124,7 @@ class MultiCorpusSampledDataset(FairseqDataset):
             1. Select a dataset using the specified probability distribution.
             2. Call the collater function of the selected dataset.
         """
+        
         if len(samples) == 0:
             return None
         datasets = list(self.datasets.keys())

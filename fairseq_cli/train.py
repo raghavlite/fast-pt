@@ -151,7 +151,9 @@ def main(cfg: FairseqConfig) -> None:
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
-    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_IL_120k/checkpoint_last.pt"
+    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0812_IL_4_128_128_8_10k/checkpoint_3_40000.pt"
+    # checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0912_IL_4_128_128_8_10k/checkpoint_1_10000.pt"
+    
     extra_state = trainer.load_checkpoint(
         checkpoint_path,
         reset_optimizer=True,
@@ -234,72 +236,93 @@ def validate(
     loss_array = []
     examples_array = []
     count=0
-    
+    # import ipdb; ipdb.set_trace()
     with metrics.aggregate(new_root=True) as agg:
         for idx2, sample in enumerate(itr):
-            # if(True):
             if(kkk<100 or kkk%1000==0):
                 print(f"### {kkk} of {len(itr)}", flush=True)
             kkk+=1
 
-            # print(">", flush=True)
-            stats = trainer.valid_step(sample)
-            assert torch.sum(sample['net_input']['src_lengths'])==stats['ntokens']
-            
+            if(sample is not None):
+                # continue;
+                # print(">", flush=True)
+                stats = trainer.valid_step(sample)
+                assert torch.sum(sample['net_input']['src_lengths'])==stats['ntokens']
+
+            # print(">>", idx2, torch.distributed.get_rank(), flush=True)    
             torch.cuda.synchronize()
-            
+                
+            if(sample is not None):
+                len_list = [torch.tensor(0).cuda() for each in range(cfg.distributed_training.distributed_world_size)]
+                nsentences = torch.tensor(sample['nsentences'])
+                torch.distributed.all_gather(len_list, nsentences.cuda())    
+                max_size = max(len_list).item()
+                size_diff = max_size - nsentences
+                if size_diff:
+                    padding_loss = torch.zeros(size_diff*sample['net_input']['src_tokens'].shape[1], dtype=torch.float).cuda()
+                    stats['loss'] = torch.cat((stats['loss'], padding_loss))
 
-            len_list = [torch.tensor(0).cuda() for each in range(cfg.distributed_training.distributed_world_size)]
-            nsentences = torch.tensor(sample['nsentences'])
-            torch.distributed.all_gather(len_list, nsentences.cuda())    
-            max_size = max(len_list).item()
-            size_diff = max_size - nsentences
-            if size_diff:
-                padding_loss = torch.zeros(size_diff*sample['net_input']['src_tokens'].shape[1], dtype=torch.float).cuda()
-                stats['loss'] = torch.cat((stats['loss'], padding_loss))
+                    padding_input_ids = torch.zeros(size_diff, sample['net_input']['src_tokens'].shape[1], dtype=torch.long)
+                    sample['net_input']['src_tokens'] = torch.cat((sample['net_input']['src_tokens'], padding_input_ids))
 
-                padding_input_ids = torch.zeros(size_diff, sample['net_input']['src_tokens'].shape[1], dtype=torch.long)
-                sample['net_input']['src_tokens'] = torch.cat((sample['net_input']['src_tokens'], padding_input_ids))
+                
+                if(torch.distributed.get_rank()==0):
 
-            
-            if(torch.distributed.get_rank()==0):
+                    loss_list = [torch.zeros_like(stats['loss'], dtype=torch.float).cuda() for  _ in  range(cfg.distributed_training.distributed_world_size)]
+                    torch.distributed.gather(stats['loss'], loss_list)
+                
+                    input_list = [torch.zeros_like(sample['net_input']['src_tokens'], dtype=torch.long).cuda() for _ in  range(cfg.distributed_training.distributed_world_size)]
+                    torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), input_list)
 
-                loss_list = [torch.zeros_like(stats['loss'], dtype=torch.float).cuda() for  _ in  range(cfg.distributed_training.distributed_world_size)]
-                torch.distributed.gather(stats['loss'], loss_list)
-            
-                input_list = [torch.zeros_like(sample['net_input']['src_tokens'], dtype=torch.long).cuda() for _ in  range(cfg.distributed_training.distributed_world_size)]
-                torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), input_list)
+                    if(max(len_list)!=min(len_list)):
+                        loss_list = [each_val[:nsentences*sample['net_input']['src_tokens'].shape[1]] for nsentences, each_val in zip(len_list, loss_list)]
+                        input_list = [each_val[:nsentences] for nsentences, each_val in zip(len_list, input_list)]
 
-                if(max(len_list)!=min(len_list)):
-                    loss_list = [each_val[:nsentences*sample['net_input']['src_tokens'].shape[1]] for nsentences, each_val in zip(len_list, loss_list)]
-                    input_list = [each_val[:nsentences] for nsentences, each_val in zip(len_list, input_list)]
-
-                loss_array.append(torch.cat(loss_list).detach().cpu())
-                examples_array.append(torch.cat(input_list, 0).detach().cpu())
-
-
-
+                    loss_array.append(torch.cat(loss_list).detach().cpu())
+                    examples_array.append(torch.cat(input_list, 0).detach().cpu())
+                else:
+                    torch.distributed.gather(stats['loss'], None)
+                    torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), None)
             else:
-                torch.distributed.gather(stats['loss'], None)
-                torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), None)
+                nsentences = torch.tensor(0)
+                torch.distributed.all_gather(len_list, nsentences.cuda())  
+
+                max_size = max(len_list).item()
+                size_diff = max_size - nsentences
+
+                if size_diff:
+                    padding_loss = torch.zeros(size_diff*cfg.dataset.batch_size_valid, dtype=torch.float).cuda()
+                    padding_input_ids = torch.zeros(size_diff, cfg.task.tokens_per_sample, dtype=torch.long).cuda()
+
+                torch.distributed.gather(padding_loss, None)
+                torch.distributed.gather(padding_input_ids, None)
 
 
-            
-
+    torch.cuda.synchronize()     
+    
     if(torch.distributed.get_rank()==0):
+        print("Concat", flush=True)
         all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
-        
-        # !something wierd between domain_datasets and multi corpus data. we need to left shift once
-        all_examples = torch.roll(all_examples, -1, 0)
-        all_losses = torch.roll(all_losses, -1, 0)
+        print("Concat done", flush=True)
+        try:
+            torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
+            torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
+        except:
+            import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
 
-        # import ipdb; ipdb.set_trace()      
+        # !something wierd between domain_datasets and multi corpus data. we need to left shift once
+        print("Roll", flush=True)
+        all_examples = roll_0(all_examples, 1)
+        all_losses = roll_0(all_losses, 1)
+        print("Roll done", flush=True)
+
+
         assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
         torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
         torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
     
-
         try:
             for idx1 in range(len(all_examples)):
                 assert (all_examples[idx1]==trainer.task.domain_datasets[subset][0][idx1]['source']).all()
@@ -312,6 +335,8 @@ def validate(
         
     return 0
 
+def roll_0(x, n):  
+    return torch.cat((x[n:], x[:n]), dim=0)
 
 def get_valid_stats(
     cfg: DictConfig, trainer: Trainer, stats: Dict[str, Any]

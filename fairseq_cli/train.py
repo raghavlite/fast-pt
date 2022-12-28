@@ -76,7 +76,7 @@ def main(cfg: FairseqConfig) -> None:
     if distributed_utils.is_master(cfg.distributed_training):
         checkpoint_utils.verify_checkpoint_directory(cfg.checkpoint.save_dir)
 
-    # import ipdb; ipdb.set_trace()
+    
     # Print args
     logger.info(cfg)
     cfg.common.all_gather_list_size = 655360
@@ -151,8 +151,8 @@ def main(cfg: FairseqConfig) -> None:
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
-    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0812_IL_4_128_128_8_10k/checkpoint_3_40000.pt"
-    # checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0912_IL_4_128_128_8_10k/checkpoint_1_10000.pt"
+    # checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0812_IL_4_128_128_8_40k/checkpoint_3_40000.pt"
+    checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0912_IL_4_128_128_8_10k/checkpoint_1_10000.pt"
     
     extra_state = trainer.load_checkpoint(
         checkpoint_path,
@@ -236,7 +236,7 @@ def validate(
     loss_array = []
     examples_array = []
     count=0
-    # import ipdb; ipdb.set_trace()
+    
     with metrics.aggregate(new_root=True) as agg:
         for idx2, sample in enumerate(itr):
             if(kkk<100 or kkk%1000==0):
@@ -305,12 +305,12 @@ def validate(
         all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         print("Concat done", flush=True)
-        try:
-            torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
-            torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
-        except:
-            import ipdb; ipdb.set_trace()
-        import ipdb; ipdb.set_trace()
+        # try:
+        #     torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
+        #     torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
+        # except:
+        #     import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
 
         # !something wierd between domain_datasets and multi corpus data. we need to left shift once
         print("Roll", flush=True)
@@ -322,6 +322,7 @@ def validate(
         assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
         torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
         torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
+        torch.save(all_examples[:,0:5], cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_05.pt" )
     
         try:
             for idx1 in range(len(all_examples)):

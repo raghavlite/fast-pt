@@ -22,6 +22,7 @@ from fairseq.data import (
     Dictionary,
     IdDataset,
     MonodomainDataset,
+    MonodomainDatasetIRL,
     NestedDictionaryDataset,
     NumelDataset,
     PadDataset,
@@ -304,21 +305,23 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
         
-        
-                loss_IRL, sample_size_IRL, logging_output_IRL = criterion(self.model_IRL, sample, reduce=False)
+                # loss_IRL, sample_size_IRL, logging_output_IRL = criterion(self.model_IRL, sample, reduce=False)
+                loss_IRL = sample['IRL_losses']
+
+                loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
                 diff_loss = loss-loss_IRL
-                diff_loss = diff_loss.reshape(sample['net_input']['src_tokens'].shape)
 
 
                 # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
                 # sample_scores = sorted_diff_loss[:, int(0.2*1024)]
                 sample_scores = torch.mean(diff_loss, dim=-1)
+                # sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
                 
                 sorted_scores, indices = torch.sort(sample_scores, descending=True)
                 selected_indices = indices[:diff_loss.shape[0]//10]
 
-                # import ipdb; ipdb.set_trace()
+                # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
                             'target': sample['target'][selected_indices],
                             'nsentences': sample['nsentences']//10,
@@ -328,8 +331,9 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                                             'src_domain_idx': sample['net_input']['src_domain_idx'][0:1]*len(selected_indices),}
                             
                             }
-                # IMP. change src_domain_idx if you are using more than one domain per gpu.
-        print("eliminated examples", indices.shape[0], sample['id'].shape[0])
+                # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+        # import ipdb; ipdb.set_trace()
+        # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
         # second forward starts here
@@ -356,23 +360,7 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                     "Unsupported language modeling target: {}".format(target)
                 )
 
-        model_IRL = super().build_model(args)
-        
-        # state = checkpoint_utils.load_checkpoint_to_cpu(
-        #             "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_tutorial/checkpoint_last.pt", 
-        #             load_on_all_ranks=False, 
-        #             moe_freq=getattr(self.cfg.model, "moe_freq", 0),
-        #             desynchronize=getattr(self.cfg.model, "desynchronize", False)
-        #         )
 
-        model_IRL.load_state_dict(
-                    self.IRL_state["model"], strict=True, model_cfg=args
-                )
-
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        self.model_IRL = model_IRL.to(device=self.device)
-        self.model_IRL.eval()
         return model
 
     def _get_sample_prob(self, dataset_lens):
@@ -510,7 +498,6 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                 self.args.seed,
             )
 
-
             dataset = TokenBlockDataset(
                 dataset,
                 dataset.sizes,
@@ -551,29 +538,16 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                     src_domain_token=src_domain_token,
                     tgt_domain_token=tgt_domain_token
                 )
+            
+            if split in self.args.train_subset.split(','):
+                # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
+                IRL_inputs = None
+                IRL_losses = torch.load(os.path.join(data_path, domain, "IRL_losses.pt"))
+                domain_dataset.set_IRL_losses(IRL_inputs, IRL_losses)
+                del IRL_inputs
 
-            if self.args.recluster_data and split in self.args.train_subset.split(','):
-                kmeans = MiniBatchKMeans(n_clusters=8)
-                svd = TruncatedSVD(n_components=64)
-                vectorizer = CountVectorizer(vocabulary=self.dictionary.symbols,
-                                            tokenizer=lambda x: x,
-                                            analyzer = lambda x:x,
-                                            preprocessor=lambda x: x)
-
-                subsets = []
-                pretrain_dataset = SubsampleDataset(domain_dataset, size_ratio=0.001)
-                text = []
-                for idx in trange(len(pretrain_dataset), disable=torch.distributed.get_rank() !=0):
-                    tt = self.dictionary.string(pretrain_dataset.__getitem__(idx)['source'])
-                    text.extend(tt.split('\n'))
-                vec = vectorizer.fit_transform(tqdm(text, disable=torch.distributed.get_rank() !=0))
-                vec = svd.fit_transform(vec)
-                kmeans.partial_fit(vec)
 
             domain_datasets.append(domain_dataset)
-
-        if self.args.recluster_data:
-            domain_datasets = [ClusterDataset(domain_dataset, vectorizer, svd, kmeans) for domain_dataset in domain_datasets]
 
         dataset_lengths = np.array(
             [len(d) for d in domain_datasets],
@@ -588,21 +562,6 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
 
 
         if split in self.args.train_subset.split(','):
-            if self.args.recluster_data:
-                clusters = defaultdict(list)
-
-                for dataset in tqdm(domain_datasets, disable=torch.distributed.get_rank() != 0):
-                    indices = defaultdict(list)
-                    loader = DataLoader(dataset, batch_size=16, num_workers=16)
-                    for item in trange(loader, disable=torch.distributed.get_rank() != 0):
-                        indices[item['cluster']].extend(item['id'])
-                    for cluster, idxs in indices.items():
-                        clusters[cluster].append(SubsetDataset(dataset, idxs))
-
-                domain_datasets_ = []
-                for cluster, ds in domain_datasets.items():
-                    domain_datasets_.append(ConcatDataset(ds))
-                domain_datasets = domain_datasets_
             if not self.args.unbalanced:
                 ds = OrderedDict()
                 for i, d in enumerate(domain_datasets):
@@ -619,13 +578,11 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                     logger.info(
                     "loaded total {} blocks on GPU {}".format(
                     item, ix
-                )
-            )
+                ))
                 dataset = MultiCorpusSampledDataset(ds, gather_lens, gpu_mappings=gpu_mappings)
             else:
                 dataset = ConcatDataset(domain_datasets)
         else:
-
             ds = []
             size_ratio = np.array([1.0] * len(domain_datasets))
             for i, d in enumerate(domain_datasets):
@@ -639,30 +596,9 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                 ds.append(d)
             dataset = ConcatDataset(ds)
 
-
-            # domain_splits = [split]
-            # for domain_id, domain_dataset in enumerate(domain_datasets):
-            #     split_name = split + "_" + eval_domains[domain_id]
-            #     domain_splits.append(split_name)
-            #     self.datasets[split_name] = domain_dataset
-            # from fairseq import pdb; pdb.set_trace()
-            # # [TODO]: This is hacky for now to print validation ppl for each
-            # # language individually. Maybe need task API changes to allow it
-            # # in more generic ways.
-
-        # if self.args.domain_parallel:
         self.datasets[split] = dataset
         print("Self datasets", self.datasets)
-        # else:
-        #     with data_utils.numpy_seed(self.args.seed + epoch):
-        #         shuffle = np.random.permutation(len(dataset))
-        #     self.datasets[split] =  SortDataset(
-        #     dataset,
-        #     sort_order=[
-        #         shuffle,
-        #         dataset.sizes,
-        #     ],
-        # )
+
 
     def eval_lm_dataloader(
         self,

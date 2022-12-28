@@ -44,18 +44,32 @@ def collate(samples, pad_idx, eos_idx, src_domain_idx, fixed_pad_length=None, pa
         target = merge("target", is_target_list)
     else:
         target = src_tokens
-
-    return {
-        "id": torch.LongTensor([s["id"] for s in samples]),
-        "nsentences": len(samples),
-        "ntokens": sum(len(s["source"]) for s in samples),
-        "net_input": {
-            "src_tokens": src_tokens,
-            "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
-            "src_domain_idx": src_domain_idx
-        },
-        "target": target
-    }
+    
+    if("IRL_losses" in samples[0]):
+        return {
+            "id": torch.LongTensor([s["id"] for s in samples]),
+            "nsentences": len(samples),
+            "ntokens": sum(len(s["source"]) for s in samples),
+            "net_input": {
+                "src_tokens": src_tokens,
+                "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
+                "src_domain_idx": src_domain_idx
+            },
+            "target": target,
+            "IRL_losses": torch.vstack([s["IRL_losses"] for s in samples]),
+        }
+    else:
+        return {
+            "id": torch.LongTensor([s["id"] for s in samples]),
+            "nsentences": len(samples),
+            "ntokens": sum(len(s["source"]) for s in samples),
+            "net_input": {
+                "src_tokens": src_tokens,
+                "src_lengths": torch.LongTensor([s["source"].numel() for s in samples]),
+                "src_domain_idx": src_domain_idx
+            },
+            "target": target,
+        }
 
 
 class MonodomainDataset(FairseqDataset):
@@ -106,6 +120,23 @@ class MonodomainDataset(FairseqDataset):
         if targets is not None and len(targets) == 0:
             targets = None
         self.targets = targets
+        self.IRL_losses=None
+
+    def set_IRL_losses(self, IRL_inputs, IRL_losses):
+        try:
+            assert len(IRL_losses) == len(self)
+            self.IRL_losses = IRL_losses
+            assert (torch.sum(IRL_losses[0]>0.0)==torch.sum(self[0]['source']>1))
+            assert (torch.sum(IRL_losses[-1]>0.0)==torch.sum(self[-1]['source']>1))
+
+            # for idx1 in range(len(IRL_losses)):
+            #     assert ((IRL_losses[idx1]>-0.00001)==(self[idx1]['source']>1)).all()
+            # print("IRL losses loaded", flush=True)
+        except:
+            print("IRL losses loading failed", flush=True)
+            self.IRL_losses = None
+            import ipdb; ipdb.set_trace()
+        return
 
     def __getitem__(self, index):
         if self.targets is not None:
@@ -125,7 +156,11 @@ class MonodomainDataset(FairseqDataset):
             source = self.dataset[index]
             target = None
         source, target = self._maybe_add_bos(source, target)
-        res = {"id": index, "source": source, "target": target}
+        if(self.IRL_losses is not None):
+            res = {"id": index, "source": source, "target": target, "IRL_losses":self.IRL_losses[index]}
+        else:
+            res = {"id": index, "source": source, "target": target}
+        
         return res
 
     def __len__(self):

@@ -22,7 +22,6 @@ from fairseq.data import (
     Dictionary,
     IdDataset,
     MonodomainDataset,
-    MonodomainDatasetIRL,
     NestedDictionaryDataset,
     NumelDataset,
     PadDataset,
@@ -318,7 +317,8 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                 # sample_scores = torch.mean(diff_loss, dim=-1)
                 # sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
                 sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
-                print("using 90%")
+
+                print("using 90%", diff_loss.shape)
                 sorted_scores, indices = torch.sort(sample_scores, descending=True)
                 selected_indices = indices[:diff_loss.shape[0]//10]
 

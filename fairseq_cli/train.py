@@ -79,29 +79,14 @@ def main(cfg: FairseqConfig) -> None:
     # Print args
     logger.info(cfg)
 
+
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
 
     if('IRL' in cfg.task._name):
-        IRL_state = checkpoint_utils.load_checkpoint_to_cpu(
-                    "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_2_GPUs_transformer_lm_gpt3_small_aa/checkpoint_best.pt", 
-                    load_on_all_ranks=False, 
-                    moe_freq=0,
-                    desynchronize=False
-                )
-        IRL_state = distributed_utils.broadcast_object(
-                    IRL_state,
-                    src_rank=0,
-                    group=distributed_utils.get_data_parallel_group(),
-                    dist_device=torch.device("cuda"),
-                )
-        task.set_IRL_state(IRL_state)
         # setting increased abtch size
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
-
-    
-    
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in cfg.dataset.valid_subset.split(","):
@@ -119,112 +104,6 @@ def main(cfg: FairseqConfig) -> None:
     logger.info("task: {}".format(task.__class__.__name__))
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
-
-    if torch.distributed.is_initialized() and getattr(cfg.model, "desynchronize", False):
-        
-        
-        if getattr(cfg.model, "sync_type") == "none":
-            groups = [[x] for x in range(torch.distributed.get_world_size())]
-            
-        elif getattr(cfg.model, "sync_type") == "manual":
-            gps = getattr(cfg.model, "data_parallel_groups")
-            gps = gps.split()
-            gps = [gp.split(',') for gp in gps]
-            groups = [[int(x) for x in y] for y in gps]
-
-        process_groups = {}
-        for group in groups:
-            distributed_group = torch.distributed.new_group(group)
-            for item in group:
-                process_groups[item] = distributed_group
-
-
-        logger.info(f"Data Parallel Groups: {groups}")
-        process_group = process_groups[torch.distributed.get_rank(torch.distributed.group.WORLD)]
-        
-        if getattr(cfg.model, "untie_parameters"):
-            for x, p in model.named_parameters():
-
-                if getattr(cfg.model, "untie_parameters") == "transformer_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    if any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "expert_layers":
-                    if "expert_layers" in x:
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "expert_ffn":
-                    ffns = ['expert_fc1', 'expert_fc2', 'gate']
-                    if any(ffn in x for ffn in ffns):
-                        p.expert = True
-                        p.process_group = process_group
-
-
-                elif getattr(cfg.model, "untie_parameters") == "transformer_output":
-                    if "layers" in x or 'output_projection' in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "input_output":
-                    if "embed_tokens" in x or "embed_positions" in x or 'output_projection' in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "transformer":
-                    if "layers" in x:
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "transformer_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    if any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "feedforward":
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and 'expert' not in x:
-                        p.expert = True
-                        p.process_group = process_group
-                
-                elif getattr(cfg.model, "untie_parameters") == "feedforward_l2":
-                    every_other_layer = [f"layers.{z}" for z in range(0, getattr(cfg.model, "decoder_layers"), 2)]
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and any(l in x for l in every_other_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "feedforward_top":
-                    top_layer = list(range(0, getattr(cfg.model, "decoder_layers")))[-1]
-                    top_layer = [f"layers.{top_layer}"]
-                    ffns = ['fc1', 'fc2']
-                    if any(ffn in x for ffn in ffns) and any(l in x for l in top_layer):
-                        p.expert = True
-                        p.process_group = process_group
-
-                elif getattr(cfg.model, "untie_parameters") == "all":
-                    p.expert = True
-                    p.process_group = process_group
-                else:
-                    raise Exception("value for untie_parameters is bad.")
-    
-
-    if getattr(cfg.model, "adaptation", False):
-    #     # if not getattr(cfg.model, "untie_parameters"):
-    #     #     for layer in model.decoder.layers:
-    #     #         layer.add_adapter(1)
-    #     #     for x,p in model.named_parameters():
-    #     #         if not 'adapter' in x:
-    #     #             p.requires_grad = False
-         ffns = ['fc1', 'fc2']
-         for x,p in model.named_parameters():
-            if not any(ffn in x for ffn in ffns):
-                 p.requires_grad = False
-            else:
-                 p.requires_grad = True
     
     
 
@@ -243,16 +122,7 @@ def main(cfg: FairseqConfig) -> None:
     )
     
     
-
-    # (optionally) Configure quantization
-    if cfg.common.quantization_config_path is not None:
-        quantizer = quantization_utils.Quantizer(
-            config_path=cfg.common.quantization_config_path,
-            max_epoch=cfg.optimization.max_epoch,
-            max_update=cfg.optimization.max_update,
-        )
-    else:
-        quantizer = None
+    quantizer = None
 
     
     # Build trainer
@@ -274,9 +144,6 @@ def main(cfg: FairseqConfig) -> None:
         )
     )
 
-    # Load the latest checkpoint if one is available and restore the
-    # corresponding train iterator
-    # epoch itr here contains a dataset iterator which will further be converted into a data loader.
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(
         cfg.checkpoint,
         trainer,
@@ -290,36 +157,14 @@ def main(cfg: FairseqConfig) -> None:
                 delattr(p, "expert")
                 delattr(p, "process_group")
 
+
     max_epoch = cfg.optimization.max_epoch or math.inf
-    lr = trainer.get_lr()
-    train_meter = meters.StopwatchMeter()
-    train_meter.start()
-    while epoch_itr.next_epoch_idx <= max_epoch:
-        if lr <= cfg.optimization.stop_min_lr:
-            logger.info(
-                f"stopping training because current learning rate ({lr}) is smaller "
-                "than or equal to minimum learning rate "
-                f"(--stop-min-lr={cfg.optimization.stop_min_lr})"
-            )
-            break
-        
-        # train for one epoch
-        valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
-        if should_stop:
-            break
-
-        # only use first validation loss to update the learning rate
-        lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
-
-        epoch_itr = trainer.get_train_iterator(
-            epoch_itr.next_epoch_idx,
-            # sharded data: get train iterator for next epoch
-            load_dataset=task.has_sharded_data("train"),
-            # don't cache epoch iterators for sharded datasets
-            disable_iterator_cache=task.has_sharded_data("train"),
+    valid_subsets = cfg.dataset.valid_subset.split(",")
+    end_of_epoch = True
+    valid_losses, should_stop = validate_and_save(
+            cfg, trainer, task, epoch_itr, valid_subsets, end_of_epoch
         )
-    train_meter.stop()
-    logger.info("done training in {:.1f} seconds".format(train_meter.sum))
+
 
 
 def should_stop_early(cfg: DictConfig, valid_loss: float) -> bool:
@@ -583,6 +428,7 @@ def validate(
         # don't pollute other aggregators (e.g., train meters)
         with metrics.aggregate(new_root=True) as agg:
             for sample in progress:
+                import ipdb; ipdb.set_trace()
                 trainer.valid_step(sample)
         # log validation stats
         stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())

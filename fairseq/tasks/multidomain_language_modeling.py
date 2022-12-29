@@ -477,6 +477,8 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
             domain_datasets.append(domain_dataset)
 
+        # import ipdb; ipdb.set_trace()
+
         if self.args.recluster_data:
             domain_datasets = [ClusterDataset(domain_dataset, vectorizer, svd, kmeans) for domain_dataset in domain_datasets]
 

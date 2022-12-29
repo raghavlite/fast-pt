@@ -322,7 +322,6 @@ def validate(
         assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
         torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
         torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
-        torch.save(all_examples[:,0:5], cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_05.pt" )
     
         try:
             for idx1 in range(len(all_examples)):
@@ -331,6 +330,8 @@ def validate(
             assert idx1 == len(all_examples)-1
             assert (all_examples[idx1][:len(trainer.task.domain_datasets[subset][0][idx1]['source'])] == trainer.task.domain_datasets[subset][0][idx1]['source']).all()
 
+        all_examples = all_examples[:,0:5]
+        torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_05.pt" )
         # log validation stats
         # print(stats['loss'].shape)        
         

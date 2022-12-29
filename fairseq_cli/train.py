@@ -79,7 +79,6 @@ def main(cfg: FairseqConfig) -> None:
     # Print args
     logger.info(cfg)
 
-
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
@@ -87,6 +86,9 @@ def main(cfg: FairseqConfig) -> None:
     if('IRL' in cfg.task._name):
         # setting increased abtch size
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
+
+    
+    
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in cfg.dataset.valid_subset.split(","):
@@ -123,7 +125,7 @@ def main(cfg: FairseqConfig) -> None:
     
     
     quantizer = None
-
+    
     
     # Build trainer
     if cfg.common.model_parallel_size == 1:
@@ -144,6 +146,9 @@ def main(cfg: FairseqConfig) -> None:
         )
     )
 
+    # Load the latest checkpoint if one is available and restore the
+    # corresponding train iterator
+    # epoch itr here contains a dataset iterator which will further be converted into a data loader.
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(
         cfg.checkpoint,
         trainer,
@@ -157,14 +162,36 @@ def main(cfg: FairseqConfig) -> None:
                 delattr(p, "expert")
                 delattr(p, "process_group")
 
-
     max_epoch = cfg.optimization.max_epoch or math.inf
-    valid_subsets = cfg.dataset.valid_subset.split(",")
-    end_of_epoch = True
-    valid_losses, should_stop = validate_and_save(
-            cfg, trainer, task, epoch_itr, valid_subsets, end_of_epoch
-        )
+    lr = trainer.get_lr()
+    train_meter = meters.StopwatchMeter()
+    train_meter.start()
+    while epoch_itr.next_epoch_idx <= max_epoch:
+        if lr <= cfg.optimization.stop_min_lr:
+            logger.info(
+                f"stopping training because current learning rate ({lr}) is smaller "
+                "than or equal to minimum learning rate "
+                f"(--stop-min-lr={cfg.optimization.stop_min_lr})"
+            )
+            break
+        
+        # train for one epoch
+        valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
+        if should_stop:
+            break
 
+        # only use first validation loss to update the learning rate
+        lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
+
+        epoch_itr = trainer.get_train_iterator(
+            epoch_itr.next_epoch_idx,
+            # sharded data: get train iterator for next epoch
+            load_dataset=task.has_sharded_data("train"),
+            # don't cache epoch iterators for sharded datasets
+            disable_iterator_cache=task.has_sharded_data("train"),
+        )
+    train_meter.stop()
+    logger.info("done training in {:.1f} seconds".format(train_meter.sum))
 
 
 def should_stop_early(cfg: DictConfig, valid_loss: float) -> bool:
@@ -428,7 +455,6 @@ def validate(
         # don't pollute other aggregators (e.g., train meters)
         with metrics.aggregate(new_root=True) as agg:
             for sample in progress:
-                import ipdb; ipdb.set_trace()
                 trainer.valid_step(sample)
         # log validation stats
         stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())

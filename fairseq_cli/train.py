@@ -81,13 +81,18 @@ def main(cfg: FairseqConfig) -> None:
 
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
-    task = tasks.setup_task(cfg.task)
-
-    if('IRL' in cfg.task._name):
+    
+    if('TK' in cfg.task._name):
+        # setting increased batch size
+        # cfg.task["suffix"] = cfg.checkpoint.save_dir
+        cfg.dataset.batch_size=10*cfg.dataset.batch_size
+    elif ('IRL' in cfg.task._name or 'HL' in cfg.task._name):
         # setting increased abtch size
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
-
+    else:
+        pass
     
+    task = tasks.setup_task(cfg.task, suffix=cfg.checkpoint.save_dir)
     
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
@@ -145,7 +150,7 @@ def main(cfg: FairseqConfig) -> None:
             cfg.dataset.batch_size,
         )
     )
-
+    
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.

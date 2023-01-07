@@ -206,7 +206,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         :prog:
     """
 
-    def __init__(self, args, dictionary, output_dictionary=None, targets=None):
+    def __init__(self, args, dictionary, output_dictionary=None, targets=None, suffix=None):
         super().__init__(args)
         self.dictionary = dictionary
         self.output_dictionary = output_dictionary or dictionary

@@ -99,8 +99,13 @@ class MonodomainDataset(FairseqDataset):
         src_domain_idx=None,
         tgt_domain_idx=None,
         src_domain_token=None,
-        tgt_domain_token=None,
+        tgt_domain_token=None, truncate_len=None
     ):
+        if(truncate_len is not None):
+            # import ipdb; ipdb.set_trace()
+            # dataset = dataset[:truncate_len]
+            sizes = sizes[:truncate_len]
+
         self.dataset = dataset
         self.sizes = np.array(sizes)
         self.vocab = src_vocab
@@ -122,12 +127,15 @@ class MonodomainDataset(FairseqDataset):
         self.targets = targets
         self.IRL_losses=None
 
-    def set_IRL_losses(self, IRL_inputs, IRL_losses):
+    def set_IRL_losses(self, IRL_inputs_05, IRL_losses):
         try:
             assert len(IRL_losses) == len(self)
             self.IRL_losses = IRL_losses
             assert (torch.sum(IRL_losses[0]>0.0)==torch.sum(self[0]['source']>1))
             assert (torch.sum(IRL_losses[-1]>0.0)==torch.sum(self[-1]['source']>1))
+
+            # for idx1 in range(len(IRL_losses)):
+            #     assert (IRL_inputs_05[idx1]==self[idx1]['source'][:5]).all(), (IRL_inputs_05[idx1], self[idx1]['source'][:5])
 
             # for idx1 in range(len(IRL_losses)):
             #     assert ((IRL_losses[idx1]>-0.00001)==(self[idx1]['source']>1)).all()
@@ -164,7 +172,8 @@ class MonodomainDataset(FairseqDataset):
         return res
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.sizes)
+        # return len(self.dataset)
 
     def _make_source_target(self, source, future_target, past_target):
         if self.targets is not None:

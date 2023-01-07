@@ -207,7 +207,7 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
         :prog:
     """
 
-    def __init__(self, args, dictionary, output_dictionary=None, targets=None):
+    def __init__(self, args, dictionary, output_dictionary=None, targets=None, suffix=None):
         super().__init__(args)
         self.dictionary = dictionary
         self.output_dictionary = output_dictionary or dictionary
@@ -270,9 +270,9 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
 
         return cls(args, dictionary, output_dictionary, targets=targets)
 
-    def set_IRL_state(self, state):
+    # def set_IRL_state(self, state):
         
-        self.IRL_state = state
+    #     self.IRL_state = state
 
     def train_step(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
@@ -315,8 +315,8 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
                 # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
                 # sample_scores = sorted_diff_loss[:, int(0.2*1024)]
                 # sample_scores = torch.mean(diff_loss, dim=-1)
-                # sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
-                sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
+                sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
+                # sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
 
                 # print("using 90%", diff_loss.shape)
                 sorted_scores, indices = torch.sort(sample_scores, descending=True)
@@ -543,11 +543,13 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
             
 
             if split in self.args.train_subset.split(','):
+                # IRL_inputs_05 = torch.load(os.path.join(data_path, domain, "IRL_inputs_05.pt"))
                 # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
-                IRL_inputs = None
+                # IRL_inputs = None
+                IRL_inputs_05 = None
                 IRL_losses = torch.load(os.path.join(data_path, domain, "IRL_losses.pt"))
-                domain_dataset.set_IRL_losses(IRL_inputs, IRL_losses)
-                del IRL_inputs
+                domain_dataset.set_IRL_losses(IRL_inputs_05, IRL_losses)
+                del IRL_inputs_05
 
 
             domain_datasets.append(domain_dataset)

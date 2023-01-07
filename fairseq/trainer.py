@@ -448,8 +448,10 @@ class Trainer(object):
             )
 
         if shard_batch_itr and not self.cfg.task.unbalanced:
-            num_shards = torch.distributed.get_world_size() // 4
-            shard_id = torch.distributed.get_rank() % (torch.distributed.get_world_size() // 4)
+            # num_shards = torch.distributed.get_world_size() // 4
+            # shard_id = torch.distributed.get_rank() % (torch.distributed.get_world_size() // 4)
+            num_shards = 1
+            shard_id = 0
         elif shard_batch_itr and self.cfg.task.unbalanced:
             num_shards = self.data_parallel_world_size
             shard_id = self.data_parallel_rank

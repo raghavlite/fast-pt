@@ -313,18 +313,23 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
 
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+            mb_loss = torch.sum(loss).item()
             loss_IRL = sample['IRL_losses']
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)-loss_IRL
             
+            # ! new version without sort
+            # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
+            # loss = torch.sum(good_tokens_loss)
+
+
+            # ! older version
             sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
             bad_indices = indices[diff_loss.shape[0]//10::]
-
             bad_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*bad_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
-            
             # diff_loss_flattened = diff_loss.view(-1)
-            
             loss[bad_indices_flattened]=0
+            loss = torch.sum(loss)
             
             # ! Verifying implementation comment
             # diff_loss_updated = diff_loss_flattened.view(sample["net_input"]['src_tokens'].shape)
@@ -333,7 +338,6 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             # assert (sorted_scores[:diff_loss.shape[0]//10] == kk[:diff_loss.shape[0]//10]).all()
             
 
-            loss = torch.sum(loss)
             # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
 
         model.set_num_updates(update_num)
@@ -349,7 +353,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["loss"] = loss
         logging_output["ntokens"] = logging_output["ntokens"]//10
         logging_output["sample_size"] = logging_output["sample_size"]//10
-
+        logging_output["mb_loss"] = mb_loss/10
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -381,20 +385,25 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
+            mb_loss = torch.sum(loss).item()
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
             
-            
-            
+            # ! new version without sort
+            # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
+            # loss = torch.sum(good_tokens_loss)
+
+
+
+            # !old version with sorting
             sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
             bad_indices = indices[diff_loss.shape[0]//10::]
-
             bad_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*bad_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
-            
-            diff_loss_flattened = diff_loss.view(-1)
-            
+            diff_loss_flattened = diff_loss.view(-1)           
             loss[bad_indices_flattened]=0
+            loss = torch.sum(loss)
             
+
             # ! Verifying implementation comment
             # diff_loss_updated = diff_loss_flattened.view(sample["net_input"]['src_tokens'].shape)
             # kk, jj = torch.sort(diff_loss_updated, 0, descending=True)
@@ -402,7 +411,6 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             # assert (sorted_scores[:diff_loss.shape[0]//10] == kk[:diff_loss.shape[0]//10]).all()
             
 
-            loss = torch.sum(loss)
             # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
 
         model.set_num_updates(update_num)
@@ -418,7 +426,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["loss"] = loss
         logging_output["ntokens"] = logging_output["ntokens"]//10
         logging_output["sample_size"] = logging_output["sample_size"]//10
-
+        logging_output["mb_loss"] = mb_loss/10
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -451,18 +459,24 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
 
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
-           
-           # using a random ordering
-            diff_loss = torch.randn(sample["net_input"]['src_tokens'].shape)
+            mb_loss = torch.sum(loss).item()
+            
 
+
+
+            # ! new version without sort
+            # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
+            # loss = torch.sum(good_tokens_loss)
+
+            
+            
+            # ! using a random ordering
+            diff_loss = torch.randn(sample["net_input"]['src_tokens'].shape)
             sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
             bad_indices = indices[diff_loss.shape[0]//10::]
-
             bad_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*bad_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
-            
             # loss_flattened = loss.view(-1)
-            
             loss[bad_indices_flattened]=0
             
            
@@ -491,7 +505,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["loss"] = loss
         logging_output["ntokens"] = logging_output["ntokens"]//10
         logging_output["sample_size"] = logging_output["sample_size"]//10
-
+        logging_output["mb_loss"] = mb_loss/10
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 

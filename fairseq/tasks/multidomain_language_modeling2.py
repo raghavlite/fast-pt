@@ -433,8 +433,8 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
             if not self.args.unbalanced:
                 if split in self.args.train_subset.split(','):
                     gpus  = range(torch.distributed.get_world_size())
-                    if len(gpus) >= 8:
-                        num_gpus_per_domain = torch.distributed.get_world_size() // 8
+                    if len(train_domains) <= torch.distributed.get_world_size():
+                        num_gpus_per_domain = torch.distributed.get_world_size() // len(train_domains)
                     else:
                         num_gpus_per_domain = 1
                     gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]

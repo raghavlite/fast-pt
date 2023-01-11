@@ -335,7 +335,9 @@ def main(cfg: DictConfig, **unused_kwargs):
     res = []
     for gen_subset in cfg.dataset.gen_subset.split(','):
         # Load dataset splits
-        task.load_dataset(gen_subset)
+        task.load_evaldataset(gen_subset)
+        if('train_' in gen_subset):
+            gen_subset='IL_split'
         dataset = task.dataset(gen_subset)
         logger.info(
             "{} {} {:,} examples".format(

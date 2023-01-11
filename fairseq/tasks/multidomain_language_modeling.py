@@ -397,6 +397,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         domain_datasets = []
     
         for domain_id, domain in domains:
+            
             split_path = os.path.join(data_path, domain, split)
             dataset = data_utils.load_indexed_dataset(
                 split_path, self.dictionary, self.args.dataset_impl, combine=combine
@@ -477,8 +478,6 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
 
             domain_datasets.append(domain_dataset)
 
-        # import ipdb; ipdb.set_trace()
-
         if self.args.recluster_data:
             domain_datasets = [ClusterDataset(domain_dataset, vectorizer, svd, kmeans) for domain_dataset in domain_datasets]
 
@@ -493,6 +492,7 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
             )
         )
 
+        
 
         if split in self.args.train_subset.split(','):
             if self.args.recluster_data:
@@ -570,6 +570,199 @@ class MultidomainLanguageModelingTask(LegacyFairseqTask):
         #         dataset.sizes,
         #     ],
         # )
+
+
+    def load_evaldataset(self, split, epoch=1, combine=False, **kwargs):
+        # load dataset ehre is called from inside trainer to create epoch itr (## IMP)
+        """Load a given dataset split.
+
+        Args:
+            split (str): name of the split (e.g., train, valid, test)
+        """
+        train_domains, eval_domains, data_path = MultidomainLanguageModelingTask._get_domains(self.args, epoch)
+        logger.info("Training on {0} domains: {1}".format(len(train_domains), train_domains))
+        tokens_per_sample = self.args.tokens_per_sample - int(self.args.add_domain_token)
+
+        fixed_pad_length = None
+        if self.args.pad_to_fixed_length:
+            fixed_pad_length = self.args.tokens_per_sample
+
+        pad_to_bsz = None
+        if self.args.pad_to_fixed_bsz:
+            pad_to_bsz = self.args.batch_size_valid if 'valid' in split else self.args.batch_size
+
+        sorted(train_domains)
+        sorted(eval_domains)
+        domain_datasets = []
+        if torch.distributed.is_initialized():
+            if not self.args.unbalanced:
+                if split in self.args.train_subset.split(','):
+                    gpus  = range(torch.distributed.get_world_size())
+                    if len(gpus) >= 8:
+                        num_gpus_per_domain = torch.distributed.get_world_size() // 8
+                    else:
+                        num_gpus_per_domain = 1
+                    gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
+                    mappings = {}
+                    for ix, gpus in enumerate(gpu_mappings):
+                        for gpu in gpus:
+                            mappings[gpu] = ix
+                    domain_id = mappings[torch.distributed.get_rank(torch.distributed.group.WORLD)]
+                    train_domain = train_domains[domain_id]
+                    domains = [(domain_id, train_domain)]
+                else:
+                    domains = enumerate(eval_domains)
+            else:
+                domains = enumerate(train_domains)
+        # elif torch.distributed.is_initialized() and self.args.domain_parallel:
+        #     gpus = range(torch.distributed.get_world_size())
+        #     if len(gpus) >= 8:
+        #         num_gpus_per_domain = torch.distributed.get_world_size() // 8
+        #     else:
+        #         num_gpus_per_domain = 1
+        #     gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
+        #     mappings = {}
+        #     for ix, gpus in enumerate(gpu_mappings):
+        #         for gpu in gpus:
+        #             mappings[gpu] = ix
+
+        #     domain_id = mappings[torch.distributed.get_rank(torch.distributed.group.WORLD)]
+        #     train_domain = train_domains[domain_id]
+        #     domains = [(domain_id, train_domain)] if split in self.args.train_subset.split(',') else enumerate(eval_domains)
+        else:
+            domains = [(0, eval_domains[0])]
+
+        # if split in self.args.train_subset.split(',') in len(split.split('_')) > 1 and split.split('_')[1] != train_domain:
+            # return
+
+        # def dedup(seq):
+        #     seen = set()
+        #     seen_add = seen.add
+        #     return [x for x in seq if not (x in seen or seen_add(x))]
+
+        # unique_domains = dedup(train_domains + eval_domains)
+
+
+        domain_datasets = []
+    
+        for domain_id, domain in domains:
+            if('train_' in split):
+                split = 'train'
+
+            split_path = os.path.join(data_path, domain, split)
+
+            dataset = data_utils.load_indexed_dataset(
+                split_path, self.dictionary, self.args.dataset_impl, combine=combine
+            )
+
+            if('train' in split):
+                split = 'IL_split'
+
+
+            if dataset is None:
+                continue
+
+            dataset = maybe_shorten_dataset(
+                dataset,
+                split,
+                self.args.shorten_data_split_list,
+                self.args.shorten_method,
+                tokens_per_sample,
+                self.args.seed,
+            )
+
+
+            dataset = TokenBlockDataset(
+                dataset,
+                dataset.sizes,
+                tokens_per_sample,
+                pad=self.dictionary.pad(),
+                eos=self.dictionary.eos(),
+                break_mode=self.args.sample_break_mode,
+                include_targets=True,
+            )
+
+            add_eos_for_other_targets = (
+                self.args.sample_break_mode is not None
+                and self.args.sample_break_mode != "none"
+            )
+            src_domain_idx, tgt_domain_idx = domain_id, domain_id
+            src_domain_token, tgt_domain_token = None, None
+            if self.args.add_domain_token:
+                if self.args.force_domain_token:
+                    src_domain_token = self.dictionary.index(domain_token(self.args.force_domain_token))
+                    tgt_domain_token = self.output_dictionary.index(domain_token(self.args.force_domain_token))
+                else:
+                    src_domain_token = self.dictionary.index(domain_token(domain))
+                    tgt_domain_token = self.output_dictionary.index(domain_token(domain))
+
+            domain_dataset = MonodomainDataset(
+                    dataset=dataset,
+                    sizes=dataset.sizes,
+                    src_vocab=self.dictionary,
+                    tgt_vocab=self.output_dictionary,
+                    add_eos_for_other_targets=add_eos_for_other_targets,
+                    shuffle=True,
+                    targets=self.targets,
+                    fixed_pad_length=fixed_pad_length,
+                    pad_to_bsz=pad_to_bsz,
+                    add_domain_token=self.args.add_domain_token,
+                    src_domain_idx=src_domain_idx,
+                    tgt_domain_idx=tgt_domain_idx,
+                    src_domain_token=src_domain_token,
+                    tgt_domain_token=tgt_domain_token
+                )
+
+            domain_datasets.append(domain_dataset)
+
+
+
+        dataset_lengths = np.array(
+            [len(d) for d in domain_datasets],
+            dtype=float,
+        )
+
+        logger.info(
+            "loaded total {} blocks for all domains".format(
+                dataset_lengths,
+            )
+        )
+
+        
+
+
+        ds = []
+        size_ratio = np.array([1.0] * len(domain_datasets))
+        for i, d in enumerate(domain_datasets):
+            d = ResamplingDataset(
+                domain_datasets[i],
+                size_ratio=size_ratio[i],
+                seed=self.args.seed,
+                epoch=epoch,
+                replace=size_ratio[i] >= 1.0,
+            )
+            ds.append(d)
+        dataset = ConcatDataset(ds)
+
+
+        self.datasets[split] = dataset
+        print("Self datasets", self.datasets)
+        # else:
+        #     with data_utils.numpy_seed(self.args.seed + epoch):
+        #         shuffle = np.random.permutation(len(dataset))
+        #     self.datasets[split] =  SortDataset(
+        #     dataset,
+        #     sort_order=[
+        #         shuffle,
+        #         dataset.sizes,
+        #     ],
+        # )
+
+
+
+
+
+
 
     def eval_lm_dataloader(
         self,

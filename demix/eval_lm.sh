@@ -1,3 +1,4 @@
+#!/bin/bash
 # Path to data-bins
 data_bin=$1
 # path to model, e.g. model_path/checkpoint_last.pt, or model_path/checkpoint_last-rank-4.pt if using demix
@@ -57,15 +58,15 @@ elif [[ "$model" == *"gshard"* || "$model" == *"switch"* ]]; then
         --distributed-port 4234 \
 	--is-moe;
 else
-        python fairseq_cli/eval_lm.py \
+        srun --label python fairseq_cli/eval_lm.py \
         ${data_bin} \
         --path ${model} \
         --gen-subset ${split}_${target_domain} \
         --task multidomain_language_modeling \
         --sample-break-mode none \
-        --tokens-per-sample 1024     \
-        --batch-size 2  \
+        --tokens-per-sample 128     \
+        --batch-size 512  \
         --eval-domains ${target_domain} \
         --results-path ${results_path} \
-	--partial-load
+	--partial-load 
 fi

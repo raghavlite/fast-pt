@@ -268,7 +268,7 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
             # standard language modeling
             targets = ["future"]
 
-        return cls(args, dictionary, output_dictionary, targets=targets)
+        return cls(args, dictionary, output_dictionary, targets=targets, suffix = kwargs['suffix'])
 
     # def set_IRL_state(self, state):
         

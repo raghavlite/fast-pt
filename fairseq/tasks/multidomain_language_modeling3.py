@@ -215,7 +215,17 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         if targets is None:
             targets = ["future"]
         self.targets = targets
-
+        
+        if 'PHL' in suffix:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PHL EX")
+            self.train_step = self.train_step_PHL
+        elif 'HL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL EX")
+            self.train_step = self.train_step_HL
+        else:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL EX")
+            self.train_step = self.train_step_HL
+        
     @classmethod
     def setup_dictionary(cls, args, **kwargs):
         dictionary = None
@@ -268,9 +278,9 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             # standard language modeling
             targets = ["future"]
 
-        return cls(args, dictionary, output_dictionary, targets=targets)
+        return cls(args, dictionary, output_dictionary, targets=targets, suffix = kwargs['suffix'])
 
-    def train_step(
+    def train_step_HL(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
     ):
         """
@@ -345,6 +355,73 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             optimizer.backward(loss)
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
+
+
+    def train_step_PHL(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        model.eval()
+        with torch.no_grad():
+            with torch.autograd.profiler.record_function("first forward"):
+                loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+        
+                loss = loss.view(sample["net_input"]['src_tokens'].shape)
+
+                example_scores = torch.quantile(loss, 0.75, dim=1)
+                example_probs = torch.nn.functional.softmax(example_scores, dim=0)
+                selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
+                # import ipdb; ipdb.set_trace()
+                # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
+                sample = {'id': sample['id'][selected_indices],
+                            'target': sample['target'][selected_indices],
+                            'nsentences': sample['nsentences']//10,
+                            'ntokens': sample['ntokens']//10,
+                            'net_input': {'src_tokens': sample['net_input']['src_tokens'][selected_indices],
+                                            'src_lengths': sample['net_input']['src_lengths'][selected_indices],
+                                            'src_domain_idx': sample['net_input']['src_domain_idx'][0:1]*len(selected_indices),}
+                            
+                            }
+                # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+        # import ipdb; ipdb.set_trace()
+        # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
+        model.set_num_updates(update_num)
+        model.train()
+        # second forward starts here
+        with torch.autograd.profiler.record_function("forward"):
+            loss, sample_size, logging_output = criterion(model, sample)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+        # logger.info(f"[{update_num}] done with bwd")
+        return loss, sample_size, logging_output
+
+
+
+
 
 
 

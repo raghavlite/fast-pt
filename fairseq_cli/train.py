@@ -245,6 +245,7 @@ def train(
     itr = iterators.GroupedIterator(itr, update_freq)
     if cfg.common.tpu:
         itr = utils.tpu_data_loader(itr)
+    # import ipdb; ipdb.set_trace()
     progress = progress_bar.progress_bar(
         itr,
         log_format=cfg.common.log_format,

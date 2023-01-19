@@ -36,7 +36,7 @@ class CrossEntropyCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample["net_input"])
-        loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
+        loss, accuracy = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         )
@@ -44,6 +44,7 @@ class CrossEntropyCriterion(FairseqCriterion):
             'is_training': model.training,
             'rank': torch.distributed.get_rank(),
             "loss": loss.data,
+            "accuracy": accuracy,
             "ntokens": sample["ntokens"],
             "nsentences": sample["target"].size(0),
             "sample_size": sample_size,
@@ -63,7 +64,14 @@ class CrossEntropyCriterion(FairseqCriterion):
             reduction="sum" if reduce else "none",
         )
 
-        return loss, loss
+        predictions = torch.argmax(lprobs, dim=1)
+        accuracy = (predictions==target).type(torch.float32).detach()*100/len(target)
+        
+        
+        if(reduce):
+            accuracy = torch.sum(accuracy)
+
+        return loss, accuracy
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:
@@ -97,15 +105,24 @@ class CrossEntropyCriterion(FairseqCriterion):
             logs[domain]  = {'loss': sum(x['loss'] for x in group), 
                             'ntokens': sum(x['ntokens'] for x in group),
                             'sample_size': sum(x['sample_size'] for x in group),
-                            'mb_loss': sum(x['mb_loss'] for x in group) if 'mb_loss' in group[0] else sum(x['loss'] for x in group),}        
+                            'mb_loss': sum(x['mb_loss'] for x in group) if 'mb_loss' in group[0] else sum(x['loss'] for x in group),
+                            'nupdates':len(group),
+                            'accuracy': sum(x['accuracy'] for x in group),
+                            'mb_accuracy': sum(x['mb_accuracy'] for x in group) if 'mb_accuracy' in group[0] else sum(x['accuracy'] for x in group),}        
         
-        # import ipdb; ipdb.set_trace()
+        # ! there is one entry in logs_ for every accumulation step
         
         loss_sum = sum(logs[domain]['loss'] for domain in logs)
         ntokens = sum(logs[domain]['ntokens'] for domain in logs)
         sample_size = sum(logs[domain]['sample_size'] for domain in logs)
         mb_loss_sum = sum(logs[domain]['mb_loss'] for domain in logs)
+        
+        accuracy_sum = sum(logs[domain]['accuracy'] for domain in logs)
+        mb_accuracy_sum = sum(logs[domain]['mb_accuracy'] for domain in logs)
 
+        nupdates_sum = sum(logs[domain]['nupdates'] for domain in logs)
+
+        
 
         # we divide by log(2) to convert the loss from base e to base 2
         try:
@@ -113,12 +130,20 @@ class CrossEntropyCriterion(FairseqCriterion):
                 "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
             ) 
 
+            
             metrics.log_scalar(
                 "mb_loss", mb_loss_sum / sample_size / math.log(2), sample_size, round=3
             ) 
 
+            metrics.log_scalar(
+                "accuracy", accuracy_sum/nupdates_sum , round=3
+            ) 
+            metrics.log_scalar(
+                "mb_accuracy", mb_accuracy_sum/nupdates_sum , round=3
+            ) 
         except:
             return  
+
         for domain in logs:
             # metrics.log_scalar(
                 # f"loss_{domain}", logs[domain]['loss'] / logs[domain]['sample_size'] / math.log(2), logs[domain]['sample_size'], round=3

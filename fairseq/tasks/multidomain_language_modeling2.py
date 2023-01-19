@@ -303,7 +303,8 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
         with torch.no_grad():
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
-        
+                mb_accuracy = torch.sum(logging_output['accuracy'])
+                
                 # loss_IRL, sample_size_IRL, logging_output_IRL = criterion(self.model_IRL, sample, reduce=False)
                 loss_IRL = sample['IRL_losses']
 
@@ -347,6 +348,8 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
         
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
+        
+        logging_output["mb_accuracy"] = mb_accuracy
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 

@@ -43,8 +43,11 @@ from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.tasks import LegacyFairseqTask, register_task
 from omegaconf import II
 from torch.utils.data import DataLoader
+from transformers import GPT2Tokenizer
 
+from fairseq.data.encoders.gpt2_bpe import get_encoder
 
+# from transformers import GPT2Tokenizer
 # from sklearn.feature_extraction.text import CountVectorizer
 # from sklearn.cluster import MiniBatchKMeans
 # from sklearn.decomposition import TruncatedSVD
@@ -235,8 +238,10 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running baseline TK")
             self.train_step = self.train_step_baseline
 
-        
-
+        self.hf_gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+        self.fs_gpt2_tokenizer = get_encoder('/usr/xtmp/rt195/DEMIX_DATA/PTData/PTData3/TrainData/gpt2_bpe/encoder.json', 
+                                  '/usr/xtmp/rt195/DEMIX_DATA/PTData/PTData3/TrainData/gpt2_bpe/vocab.bpe')
+        # import ipdb; ipdb.set_trace()
 
     @classmethod
     def setup_dictionary(cls, args, **kwargs):
@@ -320,9 +325,11 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             mb_loss = torch.sum(loss).item()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
             loss_IRL = sample['IRL_losses']
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)-loss_IRL
-            
+
             # ! new version without sort
             # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
             # loss = torch.sum(good_tokens_loss)
@@ -336,6 +343,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             # diff_loss_flattened = diff_loss.view(-1)
             loss[bad_indices_flattened]=0
             loss = torch.sum(loss)
+
+            logging_output['accuracy'][bad_indices_flattened]=0
+            accuracy = torch.sum(logging_output['accuracy'])
             
             # ! Verifying implementation comment
             # diff_loss_updated = diff_loss_flattened.view(sample["net_input"]['src_tokens'].shape)
@@ -361,7 +371,12 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
         logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+
         # logger.info(f"[{update_num}] done with bwd")
+
         return loss, sample_size, logging_output
 
 
@@ -394,8 +409,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
             mb_loss = torch.sum(loss).item()
-            # diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
-            # diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+            
+
             diff_loss = loss
 
             # import ipdb; ipdb.set_trace()
@@ -406,6 +422,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
          
             loss[bad_indices]=0
             loss = torch.sum(loss)
+            
+            logging_output['accuracy'][bad_indices]=0
+            accuracy = torch.sum(logging_output['accuracy'])
 
             # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
 
@@ -424,7 +443,11 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
         logging_output["mb_loss"] = mb_loss/10
-        # logger.info(f"[{update_num}] done with bwd")
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+    
+        
         return loss, sample_size, logging_output
 
 
@@ -458,6 +481,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
             mb_loss = torch.sum(loss).item()
+            # import ipdb; ipdb.set_trace()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
             diff_loss_T = torch.nn.functional.softmax(diff_loss, dim=0).T
 
@@ -466,8 +492,10 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).reshape((-1,))
 
+            good_indices_flattened = good_indices_flattened.detach()
             # import ipdb; ipdb.set_trace()
             PHL_loss = torch.sum(loss[good_indices_flattened])
+            accuracy = torch.sum(logging_output['accuracy'][good_indices_flattened])
 
             # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
 
@@ -487,6 +515,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
         logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -530,6 +561,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
             mb_loss = torch.sum(loss).item()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
             
             # ! new version without sort
@@ -546,6 +579,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             diff_loss_flattened = diff_loss.view(-1)           
             loss[bad_indices_flattened]=0
             loss = torch.sum(loss)
+            logging_output['accuracy'][bad_indices_flattened]=0
+            accuracy = torch.sum(logging_output['accuracy'])
             
 
             # ! Verifying implementation comment
@@ -567,11 +602,15 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             optimizer.backward(loss)
 
         # import ipdb; ipdb.set_trace()
-        logging_output["loss"] = loss
         logging_output["ntokens"] = logging_output["ntokens"]//10
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
+
+        logging_output["loss"] = loss
         logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -605,10 +644,10 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             mb_loss = torch.sum(loss).item()
-            
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
 
 
-
+            # import ipdb; ipdb.set_trace()
             # ! new version without sort
             # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
             # loss = torch.sum(good_tokens_loss)
@@ -623,10 +662,10 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
             # loss_flattened = loss.view(-1)
             loss[bad_indices_flattened]=0
-            
-           
-
             loss = torch.sum(loss)
+
+            logging_output['accuracy'][bad_indices_flattened]=0
+            accuracy = torch.sum(logging_output['accuracy'])
             # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
 
             # rand_indx = torch.randperm(len(diff_loss))
@@ -652,6 +691,12 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
         logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+
+        
+
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -790,6 +835,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
     
         for domain_id, domain in domains:
             split_path = os.path.join(data_path, domain, split)
+            
             dataset = data_utils.load_indexed_dataset(
                 split_path, self.dictionary, self.args.dataset_impl, combine=combine
             )

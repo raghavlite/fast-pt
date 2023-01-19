@@ -94,12 +94,15 @@ def load_indexed_dataset(
         dataset_impl_k = dataset_impl
         if dataset_impl_k is None:
             dataset_impl_k = indexed_dataset.infer_dataset_impl(path_k)
+        
+        # import ipdb; ipdb.set_trace()
         dataset = indexed_dataset.make_dataset(
             path_k,
             impl=dataset_impl_k or default,
             fix_lua_indexing=True,
             dictionary=dictionary,
         )
+
         if dataset is None:
             break
         logger.info("loaded {:,} examples from: {}".format(len(dataset), path_k))

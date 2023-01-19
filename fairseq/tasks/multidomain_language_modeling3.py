@@ -309,7 +309,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         with torch.no_grad():
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
-        
+                mb_accuracy = torch.sum(logging_output['accuracy'])
                 
                 
 
@@ -327,6 +327,8 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 # print("using 90%", diff_loss.shape)
                 sorted_scores, indices = torch.sort(sample_scores, descending=True)
                 selected_indices = indices[:loss.shape[0]//10]
+                # mb_accuracy = torch.sum(logging_output['accuracy'])
+
 
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
@@ -353,6 +355,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
+        logging_output["mb_accuracy"] = mb_accuracy
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -384,12 +387,15 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         with torch.no_grad():
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+                mb_accuracy = torch.sum(logging_output['accuracy'])
         
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
                 example_scores = torch.quantile(loss, 0.75, dim=1)
                 example_probs = torch.nn.functional.softmax(example_scores, dim=0)
                 selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
+                selected_indices = selected_indices.detach()
+
                 # import ipdb; ipdb.set_trace()
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
@@ -416,6 +422,10 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
+        
+
+        logging_output["mb_accuracy"] = mb_accuracy
+        
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 

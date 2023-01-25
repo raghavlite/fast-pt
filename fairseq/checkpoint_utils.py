@@ -168,7 +168,6 @@ def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
     *passthrough_args* will be passed through to
     ``trainer.get_train_iterator``.
     """
-
     reset_optimizer = cfg.reset_optimizer
     reset_lr_scheduler = cfg.reset_lr_scheduler
     optimizer_overrides = ast.literal_eval(cfg.optimizer_overrides)
@@ -248,6 +247,15 @@ def load_checkpoint(cfg: CheckpointConfig, trainer, **passthrough_args):
         )
 
     trainer.lr_step(epoch_itr.epoch)
+
+    if(cfg.overide_checkpoint_path is not None):
+        try:
+            logging.info("Trying to load override checkpoint")
+            extra_state = trainer.load_checkpoint_only(
+                cfg.overide_checkpoint_path,
+            )
+        except:
+            logging.info("Could not load override checkpoint")
 
     return extra_state, epoch_itr
 

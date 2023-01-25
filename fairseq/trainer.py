@@ -280,6 +280,102 @@ class Trainer(object):
             )
             logger.info(f"Finished saving checkpoint to {filename}")
 
+
+    def load_checkpoint_only(
+        self,
+        filename,
+    ):
+        """
+        Load all training state from a checkpoint file.
+        rank = 0 will load the checkpoint, and then broadcast it to all
+        other ranks.
+        """
+        extra_state, self._optim_history, last_optim_state = None, [], None
+
+        logger.info(f"Preparing to load checkpoint {filename}")
+        is_distributed = self.data_parallel_world_size > 1
+        bexists = PathManager.isfile(filename)
+        if bexists:
+            load_on_all_ranks = (
+                self.cfg.checkpoint.load_checkpoint_on_all_dp_ranks
+                # TPUs don't support broadcast yet, so load checkpoints
+                # on every worker for now
+                or self.tpu
+            )
+
+            if (
+                load_on_all_ranks 
+                or self.data_parallel_rank == 0
+                or self.cfg.model.moe_freq > 0 or getattr(self.cfg.model, "desynchronize", False)
+            ):
+                state = checkpoint_utils.load_checkpoint_to_cpu(
+                    filename, 
+                    load_on_all_ranks=load_on_all_ranks, 
+                    moe_freq=getattr(self.cfg.model, "moe_freq", 0),
+                    desynchronize=getattr(self.cfg.model, "desynchronize", False)
+                )
+                last_optim_state = state.get("last_optimizer_state", None)
+
+                # If doing zero_sharding, do not broadcast global optimizer
+                # state. Later we will broadcast sharded states to each rank
+                # to avoid memory from exploding.
+                if (
+                    not load_on_all_ranks
+                    and self.cfg.distributed_training.zero_sharding == "os"
+                    and "last_optimizer_state" in state
+                    and is_distributed
+                ):
+                    state["last_optimizer_state"] = "SHARDED"
+            else:
+                last_optim_state = None
+                state = None
+
+            # TODO (shru): load expert state
+            # (if checkpoints for shared and expert params are stored separately)
+            # TODO (shru): load expert last_optim_state as well
+            if (
+                self.data_parallel_world_size > 1
+                and not load_on_all_ranks
+                # disable on TPUs until they support broadcast
+                and not self.tpu
+                and self.cfg.model.moe_freq == 0
+            ):
+                state = distributed_utils.broadcast_object(
+                    state,
+                    src_rank=0,
+                    group=self.data_parallel_process_group,
+                    dist_device=self.device,
+                )
+                if self.data_parallel_rank > 0:
+                    last_optim_state = state.get("last_optimizer_state", None)
+
+            # load model parameters
+            try:
+                self.get_model().load_state_dict(
+                    state["model"], strict=True, model_cfg=self.cfg.model
+                )
+                # TODO (shru): set strict=False above and load state dict for expert state
+                #   (if checkpoints for shared and expert params are stored separately)
+                if utils.has_parameters(self.get_criterion()):
+                    self.get_criterion().load_state_dict(
+                        state["criterion"], strict=True
+                        )
+                logging.info("Override checkpoint Loaded")
+            except Exception:
+                raise Exception(
+                    "Cannot load model parameters from checkpoint {}; "
+                    "please ensure that the architectures match.".format(filename)
+                )
+        else:
+            logging.info("Override checkpoint path doesn't exist. Not Loaded")
+
+        return None
+
+
+
+
+
+
     def load_checkpoint(
         self,
         filename,

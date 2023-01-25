@@ -35,7 +35,7 @@ from fairseq.distributed_utils import is_master
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 
 logging.basicConfig(
@@ -151,6 +151,13 @@ def main(cfg: FairseqConfig) -> None:
         )
     )
     
+    
+    with open_dict(cfg.checkpoint):
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1801_TKbaseline_combined_4_128_16_64_6h_8e-4_0.1/checkpoint_last.pt"
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1801_TKbaseline_combined_4_128_16_64_6h_8e-4_0.1/checkpoint_1233.pt"
+        cfg.checkpoint.overide_checkpoint_path = None
+
+    # import ipdb; ipdb.set_trace()
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
@@ -161,6 +168,7 @@ def main(cfg: FairseqConfig) -> None:
         disable_iterator_cache=task.has_sharded_data("train"),
     )
     
+
     if getattr(cfg.model, "adaptation", False):
         for x,p in model.named_parameters():
             if hasattr(p, "expert"):

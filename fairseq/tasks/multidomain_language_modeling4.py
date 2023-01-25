@@ -321,7 +321,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
                   gradient
                 - logging outputs to display while training
         """
-
+        import ipdb; ipdb.set_trace()
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             mb_loss = torch.sum(loss).item()
@@ -403,8 +403,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
                   gradient
                 - logging outputs to display while training
         """
-        
-
+        self.run_all_selections(sample, model, criterion, optimizer, update_num, save_dir="../PT_Models/Analysis_Data/600_OHL")
+        import ipdb; ipdb.set_trace()
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
@@ -475,8 +475,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
                   gradient
                 - logging outputs to display while training
         """
-        
-
+        self.run_all_selections(sample, model, criterion, optimizer, update_num, save_dir="../PT_Models/Analysis_Data/600_PHL")
+        import ipdb; ipdb.set_trace()
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
@@ -555,8 +555,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
                   gradient
                 - logging outputs to display while training
         """
-        
-
+        self.run_all_selections(sample, model, criterion, optimizer, update_num, save_dir="../PT_Models/Analysis_Data/600_HL")
+        import ipdb; ipdb.set_trace()
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             # loss_IRL = sample['IRL_losses'].view(-1)
@@ -615,6 +615,65 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         return loss, sample_size, logging_output
 
 
+    def run_all_selections(self, sample, model, criterion, optimizer, update_num, save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+        dd = self.dictionary
+        
+        examples = []
+        for each_example in sample['net_input']['src_tokens']:
+            example = []
+            for token in each_example:
+                try:
+                    example.append(int(self.dictionary.string([token.item()])))
+                except:
+                    example.append(50257)
+            examples.append(example)
+        
+
+        with open(f"{save_dir}/tokens_{torch.distributed.get_rank()}.npy", 'wb') as f:
+            np.save(f, np.array(examples))
+  
+        
+        torch.save(loss.detach(), f"{save_dir}/loss_{torch.distributed.get_rank()}.pt")
+
+        # baseline
+        diff_loss = torch.randn(sample["net_input"]['src_tokens'].shape)
+        sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
+        good_indices = indices[:diff_loss.shape[0]//10]
+        good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
+             + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).view(-1)
+        torch.save(good_indices_flattened.detach(), f"{save_dir}/baseline_good_indices_{torch.distributed.get_rank()}.pt")
+
+
+
+        # HL
+        diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
+        sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
+        good_indices = indices[:diff_loss.shape[0]//10]
+        good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
+             + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).view(-1)
+        torch.save(good_indices_flattened.detach(), f"{save_dir}/HL_good_indices_{torch.distributed.get_rank()}.pt")
+
+
+        #PHL
+        diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
+        diff_loss_T = torch.nn.functional.softmax(diff_loss, dim=0).T
+        good_indices = torch.multinomial(diff_loss_T, diff_loss.shape[0]//10).T
+        good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
+            + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).reshape((-1,))
+        torch.save(good_indices_flattened.detach(), f"{save_dir}/PHL_good_indices_{torch.distributed.get_rank()}.pt")
+
+
+        #OHL
+        diff_loss = loss
+        sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
+        good_indices = indices[:diff_loss.shape[0]//10]
+        torch.save(good_indices_flattened.detach(), f"{save_dir}/OHL_good_indices_{torch.distributed.get_rank()}.pt")
+
+
+
+        
 
     def train_step_baseline(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
@@ -640,13 +699,14 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
                 - logging outputs to display while training
         """
         
-
+        self.run_all_selections(sample, model, criterion, optimizer, update_num, save_dir="../PT_Models/Analysis_Data/600_baseline")
+        import ipdb; ipdb.set_trace()
         with torch.autograd.profiler.record_function("first forward"):
             loss, sample_size, logging_output = criterion(model, sample, reduce=False)
             mb_loss = torch.sum(loss).item()
             mb_accuracy = torch.sum(logging_output['accuracy']).item()
 
-
+            #saveng for different methods
             # import ipdb; ipdb.set_trace()
             # ! new version without sort
             # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)

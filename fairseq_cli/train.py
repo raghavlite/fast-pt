@@ -401,6 +401,8 @@ def get_training_stats(stats: Dict[str, Any]) -> Dict[str, Any]:
     return stats
 
 
+
+
 def validate(
     cfg: DictConfig,
     trainer: Trainer,
@@ -416,57 +418,201 @@ def validate(
 
     trainer.begin_valid_epoch(epoch_itr.epoch)
     valid_losses = []
-    for subset in subsets:
+    subset = subsets[0]
 
-        logger.info('begin validation on "{}" subset on rank {}'.format(
-            subset, torch.distributed.get_rank()))
+    logger.info('begin validation on "{}" subset on rank {}'.format(
+        subset, 0))
 
-        # Initialize data iterator
-        itr = trainer.get_valid_iterator(subset).next_epoch_itr(
-            shuffle=False, set_dataset_epoch=False  # use a fixed valid set
-        )
-        if cfg.common.tpu:
-            itr = utils.tpu_data_loader(itr)
-        
-        logger.info('got valid iterator on "{}" subset on rank {}'.format(
-                subset,
-                torch.distributed.get_rank()
-            )
-        )
+    # Initialize data iterator
+    itr = trainer.get_valid_iterator(subset).next_epoch_itr(
+        shuffle=False, set_dataset_epoch=False  # use a fixed valid set
+    )
 
-        progress = progress_bar.progress_bar(
-            itr,
-            log_format=cfg.common.log_format,
-            log_interval=cfg.common.log_interval,
-            epoch=epoch_itr.epoch,
-            prefix=f"valid on '{subset}' subset",
-            tensorboard_logdir=(
-                cfg.common.tensorboard_logdir
-                if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
-                else None
-            ),
-            default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
-            wandb_project=(
-                cfg.common.wandb_project
-                if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
-                else None
-            ),
-            wandb_run_name=os.environ.get(
-                "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
-            ),
-        )
-        logger.info('Begin looping over validation "{}" subset with length "{}"'.format(subset, len(progress)))
+    # create a new root metrics aggregator so validation metrics
+    # don't pollute other aggregators (e.g., train meters)
+    kkk=0
+    loss_array = []
+    examples_array = []
+    count=0
+    
+    with metrics.aggregate(new_root=True) as agg:
+        for idx2, sample in enumerate(itr):
 
-        # create a new root metrics aggregator so validation metrics
-        # don't pollute other aggregators (e.g., train meters)
-        with metrics.aggregate(new_root=True) as agg:
-            for sample in progress:
-                trainer.valid_step(sample)
+            if(sample is not None):
+                # continue;
+                # print(">", flush=True)
+                stats = trainer.valid_step(sample)
+                import ipdb; ipdb.set_trace()    
+                assert torch.sum(sample['net_input']['src_lengths'])==stats['ntokens']
+
+            # print(">>", idx2, torch.distributed.get_rank(), flush=True)    
+            torch.cuda.synchronize()
+            if(sample is not None):
+                len_list = [torch.tensor(0).cuda() for each in range(cfg.distributed_training.distributed_world_size)]
+                nsentences = torch.tensor(sample['nsentences'])
+                torch.distributed.all_gather(len_list, nsentences.cuda())    
+                max_size = max(len_list).item()
+                size_diff = max_size - nsentences
+                if size_diff:
+                    padding_loss = torch.zeros(size_diff*sample['net_input']['src_tokens'].shape[1], dtype=torch.float).cuda()
+                    stats['loss'] = torch.cat((stats['loss'], padding_loss))
+
+                    padding_input_ids = torch.zeros(size_diff, sample['net_input']['src_tokens'].shape[1], dtype=torch.long)
+                    sample['net_input']['src_tokens'] = torch.cat((sample['net_input']['src_tokens'], padding_input_ids))
+
+                
+                if(torch.distributed.get_rank()==0):
+
+                    loss_list = [torch.zeros_like(stats['loss'], dtype=torch.float).cuda() for  _ in  range(cfg.distributed_training.distributed_world_size)]
+                    torch.distributed.gather(stats['loss'], loss_list)
+                
+                    input_list = [torch.zeros_like(sample['net_input']['src_tokens'], dtype=torch.long).cuda() for _ in  range(cfg.distributed_training.distributed_world_size)]
+                    torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), input_list)
+
+                    if(max(len_list)!=min(len_list)):
+                        loss_list = [each_val[:nsentences*sample['net_input']['src_tokens'].shape[1]] for nsentences, each_val in zip(len_list, loss_list)]
+                        input_list = [each_val[:nsentences] for nsentences, each_val in zip(len_list, input_list)]
+
+                    loss_array.append(torch.cat(loss_list).detach().cpu())
+                    examples_array.append(torch.cat(input_list, 0).detach().cpu())
+                else:
+                    torch.distributed.gather(stats['loss'], None)
+                    torch.distributed.gather(sample['net_input']['src_tokens'].cuda(), None)
+            else:
+                nsentences = torch.tensor(0)
+                torch.distributed.all_gather(len_list, nsentences.cuda())  
+
+                max_size = max(len_list).item()
+                size_diff = max_size - nsentences
+
+                if size_diff:
+                    padding_loss = torch.zeros(size_diff*cfg.dataset.batch_size_valid, dtype=torch.float).cuda()
+                    padding_input_ids = torch.zeros(size_diff, cfg.task.tokens_per_sample, dtype=torch.long).cuda()
+
+                torch.distributed.gather(padding_loss, None)
+                torch.distributed.gather(padding_input_ids, None)
+
+
+    torch.cuda.synchronize()     
+    
+    if(torch.distributed.get_rank()==0):
+        print("Concat", flush=True)
+        all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
+        all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
+        print("Concat done", flush=True)
+        try:
+            torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
+            torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
+        except:
+            import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
+
+        # !something wierd between domain_datasets and multi corpus data. we need to left shift once
+        # print("Roll", flush=True)
+        # all_examples = roll_0(all_examples, 1)
+        # all_losses = roll_0(all_losses, 1)
+        # print("Roll done", flush=True)
+
+
+        assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
+        torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses.pt" )
+        torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs.pt" )
+    
+        try:
+            for idx1 in range(len(all_examples)):
+                assert (all_examples[idx1]==trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+        except:
+            assert idx1 == len(all_examples)-1
+            assert (all_examples[idx1][:len(trainer.task.domain_datasets[subset][0][idx1]['source'])] == trainer.task.domain_datasets[subset][0][idx1]['source']).all()
+
+        all_examples = all_examples[:,0:5]
+        torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_05.pt" )
         # log validation stats
-        stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())
-        progress.print(stats, tag=subset, step=trainer.get_num_updates())
-        valid_losses.append(stats[cfg.checkpoint.best_checkpoint_metric])
-    return valid_losses
+        # print(stats['loss'].shape)        
+        
+    return 0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def validate(
+#     cfg: DictConfig,
+#     trainer: Trainer,
+#     task: tasks.FairseqTask,
+#     epoch_itr,
+#     subsets: List[str],
+# ) -> List[Optional[float]]:
+#     """Evaluate the model on the validation set(s) and return the losses."""
+
+#     if cfg.dataset.fixed_validation_seed is not None:
+#         # set fixed seed for every validation
+#         utils.set_torch_seed(cfg.dataset.fixed_validation_seed)
+
+#     trainer.begin_valid_epoch(epoch_itr.epoch)
+#     valid_losses = []
+#     for subset in subsets:
+
+#         logger.info('begin validation on "{}" subset on rank {}'.format(
+#             subset, torch.distributed.get_rank()))
+
+#         # Initialize data iterator
+#         itr = trainer.get_valid_iterator(subset).next_epoch_itr(
+#             shuffle=False, set_dataset_epoch=False  # use a fixed valid set
+#         )
+#         if cfg.common.tpu:
+#             itr = utils.tpu_data_loader(itr)
+        
+#         logger.info('got valid iterator on "{}" subset on rank {}'.format(
+#                 subset,
+#                 torch.distributed.get_rank()
+#             )
+#         )
+
+#         progress = progress_bar.progress_bar(
+#             itr,
+#             log_format=cfg.common.log_format,
+#             log_interval=cfg.common.log_interval,
+#             epoch=epoch_itr.epoch,
+#             prefix=f"valid on '{subset}' subset",
+#             tensorboard_logdir=(
+#                 cfg.common.tensorboard_logdir
+#                 if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
+#                 else None
+#             ),
+#             default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
+#             wandb_project=(
+#                 cfg.common.wandb_project
+#                 if torch.distributed.is_initialized and distributed_utils.is_master(cfg.distributed_training)
+#                 else None
+#             ),
+#             wandb_run_name=os.environ.get(
+#                 "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
+#             ),
+#         )
+#         logger.info('Begin looping over validation "{}" subset with length "{}"'.format(subset, len(progress)))
+
+#         # create a new root metrics aggregator so validation metrics
+#         # don't pollute other aggregators (e.g., train meters)
+#         with metrics.aggregate(new_root=True) as agg:
+#             for sample in progress:
+#                 trainer.valid_step(sample)
+#         # log validation stats
+#         stats = get_valid_stats(cfg, trainer, agg.get_smoothed_values())
+#         progress.print(stats, tag=subset, step=trainer.get_num_updates())
+#         valid_losses.append(stats[cfg.checkpoint.best_checkpoint_metric])
+#     return valid_losses
 
 
 def get_valid_stats(

@@ -110,7 +110,7 @@ class CrossEntropyCriterion(FairseqCriterion):
                             'accuracy': sum(x['accuracy'] for x in group),
                             'mb_accuracy': sum(x['mb_accuracy'] for x in group) if 'mb_accuracy' in group[0] else sum(x['accuracy'] for x in group),}        
         
-        # ! there is one entry in logs_ for every accumulation step
+        # ! there is one entry in logs_ for every train step on every gpu. This function is called every accu_steps*gpus.
         
         loss_sum = sum(logs[domain]['loss'] for domain in logs)
         ntokens = sum(logs[domain]['ntokens'] for domain in logs)
@@ -122,7 +122,6 @@ class CrossEntropyCriterion(FairseqCriterion):
 
         nupdates_sum = sum(logs[domain]['nupdates'] for domain in logs)
 
-        
 
         # we divide by log(2) to convert the loss from base e to base 2
         try:

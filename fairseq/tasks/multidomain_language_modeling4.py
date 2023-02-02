@@ -48,6 +48,7 @@ from transformers import GPT2Tokenizer
 from fairseq.data.encoders.gpt2_bpe import get_encoder
 
 from collections import Counter
+import pickle
 
 # from transformers import GPT2Tokenizer
 # from sklearn.feature_extraction.text import CountVectorizer
@@ -596,19 +597,21 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).view(-1)
 
-            examples = []
-            for each_example in sample['net_input']['src_tokens']:
-                example = []
-                for token in each_example:
-                    try:
-                        example.append(int(self.dictionary.string([token.item()])))
-                    except:
-                        example.append(50257)
-                examples.append(example)
-            converted_tokens = torch.tensor(examples,device=good_indices.device)
+            non_converted_tokens = sample["net_input"]['src_tokens']
+
+            # examples = []
+            # for each_example in sample['net_input']['src_tokens']:
+            #     example = []
+            #     for token in each_example:
+            #         try:
+            #             example.append(int(self.dictionary.string([token.item()])))
+            #         except:
+            #             example.append(50257)
+            #     examples.append(example)
+            # converted_tokens = torch.tensor(examples,device=good_indices.device)
 
             
-            selected_tokens = converted_tokens.view(-1)[good_indices_flattened]
+            selected_tokens = non_converted_tokens.view(-1)[good_indices_flattened]
             selected_counts = Counter(selected_tokens.tolist())
 
 
@@ -699,19 +702,20 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             good_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*good_indices 
              + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=good_indices.device).unsqueeze(0)).view(-1)
 
-            examples = []
-            for each_example in sample['net_input']['src_tokens']:
-                example = []
-                for token in each_example:
-                    try:
-                        example.append(int(self.dictionary.string([token.item()])))
-                    except:
-                        example.append(50257)
-                examples.append(example)
-            converted_tokens = torch.tensor(examples,device=good_indices.device)
+            non_converted_tokens = sample["net_input"]['src_tokens']
+            # examples = []
+            # for each_example in sample['net_input']['src_tokens']:
+            #     example = []
+            #     for token in each_example:
+            #         try:
+            #             example.append(int(self.dictionary.string([token.item()])))
+            #         except:
+            #             example.append(50257)
+            #     examples.append(example)
+            # converted_tokens = torch.tensor(examples,device=good_indices.device)
 
             
-            selected_tokens = converted_tokens.view(-1)[good_indices_flattened]
+            selected_tokens = non_converted_tokens.view(-1)[good_indices_flattened]
             selected_counts = Counter(selected_tokens.tolist())
             
 
@@ -749,25 +753,26 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
 
 
     def valid_step(self, sample, model, criterion):
-        loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
+        model.eval()
+        with torch.no_grad():
+            loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+
+        non_converted_tokens = sample["net_input"]['src_tokens']
+        # examples = []
+        # for each_example in sample['net_input']['src_tokens']:
+        #     example = []
+        #     for token in each_example:
+        #         try:
+        #             example.append(int(self.dictionary.string([token.item()])))
+        #         except:
+        #             example.append(50257)
+        #     examples.append(example)
+        # converted_tokens = torch.tensor(examples)
+
+
+        logging_output["selected_counts"] = Counter(non_converted_tokens.view(-1).tolist())
         
-
-        examples = []
-        for each_example in sample['net_input']['src_tokens']:
-            example = []
-            for token in each_example:
-                try:
-                    example.append(int(self.dictionary.string([token.item()])))
-                except:
-                    example.append(50257)
-            examples.append(example)
-        converted_tokens = torch.tensor(examples)
-
-
-
-
-        logging_output["selected_counts"] = Counter(converted_tokens.view(-1).tolist())
-
+        # import ipdb; ipdb.set_trace()
         return loss, sample_size, logging_output
 
 
@@ -794,13 +799,31 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         if(logging_outputs[0]["is_training"]):
             for each_log in logging_outputs:
                 self.selected_token_counts_training += Counter(each_log["selected_counts"])
+                del each_log["selected_counts"]
         else:
             # save stats to appropriate folder
             # do validation stats
             for each_log in logging_outputs:
                 self.all_token_counts_validation += Counter(each_log["selected_counts"])
-            
+                del each_log["selected_counts"]
+                del each_log["accuracy"]
+                # del each_log["converted_tokens"]
+        
+        # print("reduce metrics", len(logging_outputs), flush=True)
         # import ipdb; ipdb.set_trace()
+
+    def save_metrics(self, trainpath, validpath):
+        with open(trainpath, 'wb') as outputfile:
+            pickle.dump(self.selected_token_counts_training, outputfile)
+
+        with open(validpath, 'wb') as outputfile:
+            pickle.dump(self.all_token_counts_validation, outputfile)
+        self.selected_token_counts_training = Counter([])
+        self.all_token_counts_validation = Counter([])
+
+
+
+
 
     def _get_sample_prob(self, dataset_lens):
         """

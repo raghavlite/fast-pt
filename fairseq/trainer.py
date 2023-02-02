@@ -879,13 +879,17 @@ class Trainer(object):
 
         # gather logging outputs from all replicas
         if self.data_parallel_world_size > 1:
-            logging_outputs, (sample_size,) = self._aggregate_logging_outputs(
+            logging_outputs_agg, (sample_size,) = self._aggregate_logging_outputs(
                 logging_outputs,
                 sample_size,
                 ignore=is_dummy_batch,
             )
+        
+        
         # log validation stats
-        logging_output = self._reduce_and_log_stats(logging_outputs, sample_size)
+        logging_outputs_red = self._reduce_and_log_stats(logging_outputs_agg, sample_size)
+        # ! major change doine here
+        del logging_output['selected_counts']
         return logging_output
 
     def zero_grad(self):
@@ -1208,8 +1212,8 @@ class Trainer(object):
         with metrics.aggregate() as agg:
             if logging_outputs is not None:
                 self.task.reduce_metrics(logging_outputs, self.get_criterion())
-                del logging_outputs
-
+                # del logging_outputs
+            
             # extra warning for criterions that don't properly log a loss value
             if "loss" not in agg:
                 if "loss" not in self._warn_once:

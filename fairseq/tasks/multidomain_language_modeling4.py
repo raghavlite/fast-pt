@@ -231,6 +231,12 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         elif 'HL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL TK")
             self.train_step = self.train_step_HL
+        elif 'ML' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running ML TK")
+            self.train_step = self.train_step_ML
+        elif 'LL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running LL TK")
+            self.train_step = self.train_step_LL
         elif 'baseline' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running baseline TK")
             self.train_step = self.train_step_baseline
@@ -613,6 +619,189 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         logging_output["mb_accuracy"] = mb_accuracy
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
+
+
+
+    def train_step_ML(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """     
+
+        with torch.autograd.profiler.record_function("first forward"):
+            loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+            # loss_IRL = sample['IRL_losses'].view(-1)
+            mb_loss = torch.sum(loss).item()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
+            diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
+            
+            # ! new version without sort
+            # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
+            # loss = torch.sum(good_tokens_loss)
+
+
+
+            # !old version with sorting
+            sorted_scores, indices = torch.sort(diff_loss, 0, descending=True)
+            bad_indices1 = indices[:4*diff_loss.shape[0]//10]
+            bad_indices2 = indices[5*diff_loss.shape[0]//10::]
+            bad_indices=torch.cat((bad_indices1, bad_indices2), 0)
+
+            
+            bad_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*bad_indices 
+             + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
+            diff_loss_flattened = diff_loss.view(-1)           
+            loss[bad_indices_flattened]=0
+            loss = torch.sum(loss)
+            logging_output['accuracy'][bad_indices_flattened]=0
+            accuracy = torch.sum(logging_output['accuracy'])
+            
+
+            # ! Verifying implementation comment
+            # diff_loss_updated = diff_loss_flattened.view(sample["net_input"]['src_tokens'].shape)
+            # kk, jj = torch.sort(diff_loss_updated, 0, descending=True)
+            # assert (kk[diff_loss.shape[0]//10::]==0).all()
+            # assert (sorted_scores[:diff_loss.shape[0]//10] == kk[:diff_loss.shape[0]//10]).all()
+            
+
+            # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+
+        model.set_num_updates(update_num)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+
+        # import ipdb; ipdb.set_trace()
+        logging_output["ntokens"] = logging_output["ntokens"]//10
+        logging_output["sample_size"] = logging_output["sample_size"]//10
+        logging_output["nsentences"] = logging_output["nsentences"]//10
+
+        logging_output["loss"] = loss
+        logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+        # logger.info(f"[{update_num}] done with bwd")
+        return loss, sample_size, logging_output
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def train_step_LL(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        
+
+        with torch.autograd.profiler.record_function("first forward"):
+            loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+            # loss_IRL = sample['IRL_losses'].view(-1)
+            mb_loss = torch.sum(loss).item()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
+            diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
+            
+            # ! new version without sort
+            # good_tokens_loss, good_indices = torch.topk(diff_loss, diff_loss.shape[0]//10, sorted=False, dim=0)
+            # loss = torch.sum(good_tokens_loss)
+
+            
+
+            # !old version with sorting
+            sorted_scores, indices = torch.sort(diff_loss, 0, descending=False)
+            bad_indices = indices[diff_loss.shape[0]//10::]
+            bad_indices_flattened = (sample["net_input"]['src_tokens'].shape[1]*bad_indices 
+             + torch.arange(sample["net_input"]['src_tokens'].shape[1], device=bad_indices.device).unsqueeze(0)).view(-1)
+            diff_loss_flattened = diff_loss.view(-1)           
+            loss[bad_indices_flattened]=0
+            loss = torch.sum(loss)
+            logging_output['accuracy'][bad_indices_flattened]=0
+            accuracy = torch.sum(logging_output['accuracy'])
+            
+
+            # ! Verifying implementation comment
+            # diff_loss_updated = diff_loss_flattened.view(sample["net_input"]['src_tokens'].shape)
+            # kk, jj = torch.sort(diff_loss_updated, 0, descending=True)
+            # assert (kk[diff_loss.shape[0]//10::]==0).all()
+            # assert (sorted_scores[:diff_loss.shape[0]//10] == kk[:diff_loss.shape[0]//10]).all()
+            
+
+            # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+
+        model.set_num_updates(update_num)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+
+        # import ipdb; ipdb.set_trace()
+        logging_output["ntokens"] = logging_output["ntokens"]//10
+        logging_output["sample_size"] = logging_output["sample_size"]//10
+        logging_output["nsentences"] = logging_output["nsentences"]//10
+
+        logging_output["loss"] = loss
+        logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+        # logger.info(f"[{update_num}] done with bwd")
+        return loss, sample_size, logging_output
+
+
 
 
 

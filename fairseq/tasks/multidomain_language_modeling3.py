@@ -388,7 +388,8 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
                 mb_accuracy = torch.sum(logging_output['accuracy'])
-        
+                mb_loss = torch.sum(loss).item()
+
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
                 example_scores = torch.quantile(loss, 0.75, dim=1)
@@ -425,7 +426,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         
 
         logging_output["mb_accuracy"] = mb_accuracy
-        
+        logging_output["mb_loss"] = mb_loss/10
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 

@@ -64,6 +64,7 @@ class CrossEntropyCriterion(FairseqCriterion):
             reduction="sum" if reduce else "none",
         )
 
+        # dividing accuracy by number of tokens
         predictions = torch.argmax(lprobs, dim=1)
         accuracy = (predictions==target).type(torch.float32).detach()*100/len(target)
         
@@ -100,15 +101,14 @@ class CrossEntropyCriterion(FairseqCriterion):
         
         logs = {}
         
-        
         for domain, group in logs_.items():
             logs[domain]  = {'loss': sum(x['loss'] for x in group), 
                             'ntokens': sum(x['ntokens'] for x in group),
                             'sample_size': sum(x['sample_size'] for x in group),
-                            'mb_loss': sum(x['mb_loss'] for x in group) if 'mb_loss' in group[0] else sum(x['loss'] for x in group),
+                            'mb_loss': sum(x['mb_loss'] for x in group) if 'mb_loss' in group[0] else sum(0 for x in group),
                             'nupdates':len(group),
                             'accuracy': sum(x['accuracy'] for x in group),
-                            'mb_accuracy': sum(x['mb_accuracy'] for x in group) if 'mb_accuracy' in group[0] else sum(x['accuracy'] for x in group),}        
+                            'mb_accuracy': sum(x['mb_accuracy'] for x in group) if 'mb_accuracy' in group[0] else sum(0 for x in group),}        
         
         # ! there is one entry in logs_ for every accumulation step
         
@@ -122,7 +122,7 @@ class CrossEntropyCriterion(FairseqCriterion):
 
         nupdates_sum = sum(logs[domain]['nupdates'] for domain in logs)
 
-        
+                
 
         # we divide by log(2) to convert the loss from base e to base 2
         try:

@@ -219,11 +219,14 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             targets = ["future"]
         self.targets = targets
         self.suffix  = suffix
+        self.temperature=0
         if 'IRL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running IRL TK")
             self.train_step = self.train_step_IRL
         elif 'PHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PHL TK")
+            self.temperature = float(suffix.split('temp')[1].split('_')[0])
+            # import ipdb; ipdb.set_trace()
             self.train_step = self.train_step_PHL
         elif 'OHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running OHL TK")
@@ -237,6 +240,9 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
         elif 'LL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running LL TK")
             self.train_step = self.train_step_LL
+        elif 'Rbaseline' in suffix:
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running Rbaseline TK")
+            self.train_step = self.train_step_Rbaseline
         elif 'baseline' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running baseline TK")
             self.train_step = self.train_step_baseline
@@ -491,7 +497,7 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             mb_accuracy = torch.sum(logging_output['accuracy']).item()
 
             diff_loss = loss.view(sample["net_input"]['src_tokens'].shape)
-            diff_loss_T = torch.nn.functional.softmax(diff_loss, dim=0).T
+            diff_loss_T = torch.nn.functional.softmax(diff_loss/self.temperature, dim=0).T
 
             good_indices = torch.multinomial(diff_loss_T, diff_loss.shape[0]//10).T
 
@@ -835,6 +841,73 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             mb_loss = torch.sum(loss).item()
             mb_accuracy = torch.sum(logging_output['accuracy']).item()
 
+            loss_rs = loss.view(sample["net_input"]['src_tokens'].shape)
+            loss_rs[loss_rs.shape[0]//10::]=0
+
+            loss = torch.sum(loss_rs)
+
+            all_accuracy = logging_output['accuracy'].view(sample["net_input"]['src_tokens'].shape)
+            
+            all_accuracy[loss_rs.shape[0]//10::]=0
+            accuracy = torch.sum(logging_output['accuracy'])
+
+
+        model.set_num_updates(update_num)
+
+        
+        if ignore_grad:
+            loss *= 0
+
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+
+
+        logging_output["loss"] = loss
+        logging_output["ntokens"] = logging_output["ntokens"]//10
+        logging_output["sample_size"] = logging_output["sample_size"]//10
+        logging_output["nsentences"] = logging_output["nsentences"]//10
+        logging_output["mb_loss"] = mb_loss/10
+
+        logging_output["accuracy"] = accuracy*10
+        logging_output["mb_accuracy"] = mb_accuracy
+
+        
+
+        # logger.info(f"[{update_num}] done with bwd")
+        return loss, sample_size, logging_output
+
+
+
+    def train_step_Rbaseline(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        
+
+        with torch.autograd.profiler.record_function("first forward"):
+            loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+            mb_loss = torch.sum(loss).item()
+            mb_accuracy = torch.sum(logging_output['accuracy']).item()
+
 
             # import ipdb; ipdb.set_trace()
             # ! new version without sort
@@ -888,6 +961,8 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
 
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
+
+
 
 
 

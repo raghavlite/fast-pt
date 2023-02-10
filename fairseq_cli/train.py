@@ -79,6 +79,7 @@ def main(cfg: FairseqConfig) -> None:
     # Print args
     logger.info(cfg)
 
+    
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
     
@@ -158,8 +159,12 @@ def main(cfg: FairseqConfig) -> None:
         cfg.checkpoint,
         trainer,
         # don't cache epoch iterators for sharded datasets
-        disable_iterator_cache=task.has_sharded_data("train"),
+        disable_iterator_cache=task.has_sharded_data("train")
     )
+    
+    
+    # if('rdl' in cfg.checkpoint.save_dir):
+    #     epoch_itr = trainer.get_train_iterator(epoch=1, load_dataset=True)
     
     if getattr(cfg.model, "adaptation", False):
         for x,p in model.named_parameters():
@@ -245,7 +250,7 @@ def train(
     itr = iterators.GroupedIterator(itr, update_freq)
     if cfg.common.tpu:
         itr = utils.tpu_data_loader(itr)
-    # import ipdb; ipdb.set_trace()
+    
     progress = progress_bar.progress_bar(
         itr,
         log_format=cfg.common.log_format,

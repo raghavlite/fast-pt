@@ -215,9 +215,11 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         if targets is None:
             targets = ["future"]
         self.targets = targets
-        
+        self.temperature=0
+
         if 'PHL' in suffix:
-            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PHL EX")
+            self.temperature = float(suffix.split('temp')[1].split('_')[0])
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PHL EX, with temp {self.temperature}")
             self.train_step = self.train_step_PHL
         elif 'HL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL EX")
@@ -393,7 +395,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
                 example_scores = torch.quantile(loss, 0.75, dim=1)
-                example_probs = torch.nn.functional.softmax(example_scores, dim=0)
+                example_probs = torch.nn.functional.softmax(example_scores/self.temperature, dim=0)
                 selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
                 selected_indices = selected_indices.detach()
 

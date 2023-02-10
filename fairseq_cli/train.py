@@ -307,12 +307,12 @@ def validate(
         all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         print("Concat done", flush=True)
-        # try:
-        #     torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
-        #     torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
-        # except:
-        #     import ipdb; ipdb.set_trace()
-        # import ipdb; ipdb.set_trace()
+        try:
+            torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
+            torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
+        except:
+            import ipdb; ipdb.set_trace()
+        
 
         # !something wierd between domain_datasets and multi corpus data. we need to left shift once
         print("Roll", flush=True)

@@ -176,6 +176,12 @@ def main(cfg: FairseqConfig) -> None:
     lr = trainer.get_lr()
     train_meter = meters.StopwatchMeter()
     train_meter.start()
+
+    valid_subsets = cfg.dataset.valid_subset.split(",")
+    validate(cfg, trainer, task, epoch_itr, valid_subsets)
+    
+
+
     while epoch_itr.next_epoch_idx <= max_epoch:
         if lr <= cfg.optimization.stop_min_lr:
             logger.info(

@@ -76,7 +76,8 @@ def main(cfg: FairseqConfig) -> None:
     if distributed_utils.is_master(cfg.distributed_training):
         checkpoint_utils.verify_checkpoint_directory(cfg.checkpoint.save_dir)
 
-    
+
+    # import ipdb; ipdb.set_trace()    
     # Print args
     logger.info(cfg)
     cfg.common.all_gather_list_size = 655360
@@ -239,6 +240,8 @@ def validate(
     examples_array = []
     count=0
     
+
+
     with metrics.aggregate(new_root=True) as agg:
         for idx2, sample in enumerate(itr):
             if(kkk<100 or kkk%1000==0):
@@ -307,18 +310,23 @@ def validate(
         all_examples = torch.cat(examples_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         all_losses = torch.cat(loss_array).view(-1, sample['net_input']['src_tokens'].shape[1])
         print("Concat done", flush=True)
+
         try:
             torch.save(all_losses, cfg.task.data + cfg.task.eval_domains + "/IRL_losses_unrolled.pt" )
             torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_unrolled.pt" )
         except:
             import ipdb; ipdb.set_trace()
         
+        print("Save done", flush=True)
+
 
         # !something wierd between domain_datasets and multi corpus data. we need to left shift once
         print("Roll", flush=True)
         all_examples = roll_0(all_examples, 1)
         all_losses = roll_0(all_losses, 1)
         print("Roll done", flush=True)
+
+        print("Save done", flush=True)
 
 
         assert len(all_examples)==len(trainer.task.domain_datasets[subset][0])
@@ -334,6 +342,9 @@ def validate(
 
         all_examples = all_examples[:,0:5]
         torch.save(all_examples, cfg.task.data + cfg.task.eval_domains + "/IRL_inputs_05.pt" )
+
+        print("Save done", flush=True)
+
         # log validation stats
         # print(stats['loss'].shape)        
         

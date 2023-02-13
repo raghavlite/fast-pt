@@ -177,7 +177,7 @@ def domain_token(domain):
     return f"<{domain}>"
 
 
-@register_task("multidomain_language_modeling_HL", dataclass=MultidomainLanguageModelingConfig)
+@register_task("multidomain_language_modeling_EX", dataclass=MultidomainLanguageModelingConfig)
 class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
     """
     Train a language model.
@@ -215,6 +215,8 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         if targets is None:
             targets = ["future"]
         self.targets = targets
+
+        self.suffix  = suffix
         self.temperature=0
 
         if 'PHL' in suffix:
@@ -224,6 +226,13 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         elif 'HL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL EX")
             self.train_step = self.train_step_HL
+        elif 'PIRL' in suffix and (not 'HL' in suffix) and (not 'PHL' in suffix):
+            self.temperature = float(suffix.split('temp')[1].split('_')[0])
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PIRL, with temp {self.temperature}")
+            self.train_step = self.train_step_PIRL
+        elif 'IRL' in suffix and (not 'PIRL' in suffix) and (not 'HL' in suffix):
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running IRL")
+            self.train_step = self.train_step_IRL
         else:
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running HL EX")
             self.train_step = self.train_step_HL
@@ -282,6 +291,89 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
 
         return cls(args, dictionary, output_dictionary, targets=targets, suffix = kwargs['suffix'])
 
+    def train_step_Rbaseline(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        
+
+        model.eval()
+        with torch.no_grad():
+            with torch.autograd.profiler.record_function("first forward"):
+                loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+                mb_accuracy = torch.sum(logging_output['accuracy'])
+                mb_loss = torch.sum(loss).item()
+                
+
+                loss = loss.view(sample["net_input"]['src_tokens'].shape)
+
+
+
+
+                # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
+                # sample_scores = sorted_diff_loss[:, int(0.2*1024)]
+                # sample_scores = torch.mean(diff_loss, dim=-1)
+                sample_scores = torch.quantile(loss, 0.75, dim=1)
+                # sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
+
+                # print("using 90%", diff_loss.shape)
+                sample_scores = torch.randn(sample["net_input"]['src_tokens'].shape[0])
+                sorted_scores, indices = torch.sort(sample_scores, descending=True)
+                selected_indices = indices[:loss.shape[0]//10]
+                # mb_accuracy = torch.sum(logging_output['accuracy'])
+
+
+                # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
+                sample = {'id': sample['id'][selected_indices],
+                            'target': sample['target'][selected_indices],
+                            'nsentences': sample['nsentences']//10,
+                            'ntokens': sample['ntokens']//10,
+                            'net_input': {'src_tokens': sample['net_input']['src_tokens'][selected_indices],
+                                            'src_lengths': sample['net_input']['src_lengths'][selected_indices],
+                                            'src_domain_idx': sample['net_input']['src_domain_idx'][0:1]*len(selected_indices),}
+                            
+                            }
+                # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+        # import ipdb; ipdb.set_trace()
+        # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
+        model.set_num_updates(update_num)
+        model.train()
+        # second forward starts here
+        with torch.autograd.profiler.record_function("forward"):
+            loss, sample_size, logging_output = criterion(model, sample)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+        logging_output["mb_accuracy"] = mb_accuracy
+        logging_output["mb_loss"] = mb_loss/10
+        # logger.info(f"[{update_num}] done with bwd")
+        return loss, sample_size, logging_output
+
+
+
     def train_step_HL(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
     ):
@@ -312,7 +404,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
                 mb_accuracy = torch.sum(logging_output['accuracy'])
-                
+                mb_loss = torch.sum(loss).item()
                 
 
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
@@ -358,6 +450,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
         logging_output["mb_accuracy"] = mb_accuracy
+        logging_output["mb_loss"] = mb_loss/10
         # logger.info(f"[{update_num}] done with bwd")
         return loss, sample_size, logging_output
 
@@ -434,6 +527,175 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
 
 
 
+
+
+    def train_step_PIRL(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        
+
+        model.eval()
+        with torch.no_grad():
+            with torch.autograd.profiler.record_function("first forward"):
+                loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+                mb_accuracy = torch.sum(logging_output['accuracy'])
+                mb_loss = torch.sum(loss).item()
+
+                # loss_IRL, sample_size_IRL, logging_output_IRL = criterion(self.model_IRL, sample, reduce=False)
+                loss_IRL = sample['IRL_losses']
+
+                loss = loss.view(sample["net_input"]['src_tokens'].shape)
+
+                diff_loss = loss-loss_IRL
+
+
+                # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
+                # sample_scores = sorted_diff_loss[:, int(0.2*1024)]
+                # sample_scores = torch.mean(diff_loss, dim=-1)
+                sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
+                # sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
+
+                # print("using 90%", diff_loss.shape)
+
+                example_probs = torch.nn.functional.softmax(sample_scores/self.temperature, dim=0)
+                selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
+                selected_indices = selected_indices.detach()
+
+
+                # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
+                sample = {'id': sample['id'][selected_indices],
+                            'target': sample['target'][selected_indices],
+                            'nsentences': sample['nsentences']//10,
+                            'ntokens': sample['ntokens']//10,
+                            'net_input': {'src_tokens': sample['net_input']['src_tokens'][selected_indices],
+                                            'src_lengths': sample['net_input']['src_lengths'][selected_indices],
+                                            'src_domain_idx': sample['net_input']['src_domain_idx'][0:1]*len(selected_indices),}
+                            
+                            }
+                # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+        # import ipdb; ipdb.set_trace()
+        # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
+        model.set_num_updates(update_num)
+        model.train()
+        # second forward starts here
+        with torch.autograd.profiler.record_function("forward"):
+            loss, sample_size, logging_output = criterion(model, sample)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+        
+        logging_output["mb_accuracy"] = mb_accuracy
+        logging_output["mb_loss"] = mb_loss/10
+
+        return loss, sample_size, logging_output
+
+
+
+
+    def train_step_IRL(
+        self, sample, model, criterion, optimizer, update_num, ignore_grad=False
+    ):
+        """
+        Do forward and backward, and return the loss as computed by *criterion*
+        for the given *model* and *sample*.
+
+        Args:
+            sample (dict): the mini-batch. The format is defined by the
+                :class:`~fairseq.data.FairseqDataset`.
+            model (~fairseq.models.BaseFairseqModel): the model
+            criterion (~fairseq.criterions.FairseqCriterion): the criterion
+            optimizer (~fairseq.optim.FairseqOptimizer): the optimizer
+            update_num (int): the current update
+            ignore_grad (bool): multiply loss by 0 if this is set to True
+
+        Returns:
+            tuple:
+                - the loss
+                - the sample size, which is used as the denominator for the
+                  gradient
+                - logging outputs to display while training
+        """
+        
+
+        model.eval()
+        with torch.no_grad():
+            with torch.autograd.profiler.record_function("first forward"):
+                loss, sample_size, logging_output = criterion(model, sample, reduce=False)
+                mb_accuracy = torch.sum(logging_output['accuracy'])
+                mb_loss = torch.sum(loss).item()
+
+                # loss_IRL, sample_size_IRL, logging_output_IRL = criterion(self.model_IRL, sample, reduce=False)
+                loss_IRL = sample['IRL_losses']
+
+                loss = loss.view(sample["net_input"]['src_tokens'].shape)
+
+                diff_loss = loss-loss_IRL
+
+
+                # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
+                # sample_scores = sorted_diff_loss[:, int(0.2*1024)]
+                # sample_scores = torch.mean(diff_loss, dim=-1)
+                sample_scores = torch.quantile(diff_loss, 0.75, dim=1)
+                # sample_scores = torch.quantile(diff_loss, 0.9, dim=1)
+
+                # print("using 90%", diff_loss.shape)
+                sorted_scores, indices = torch.sort(sample_scores, descending=True)
+                selected_indices = indices[:diff_loss.shape[0]//10]
+
+                # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
+                sample = {'id': sample['id'][selected_indices],
+                            'target': sample['target'][selected_indices],
+                            'nsentences': sample['nsentences']//10,
+                            'ntokens': sample['ntokens']//10,
+                            'net_input': {'src_tokens': sample['net_input']['src_tokens'][selected_indices],
+                                            'src_lengths': sample['net_input']['src_lengths'][selected_indices],
+                                            'src_domain_idx': sample['net_input']['src_domain_idx'][0:1]*len(selected_indices),}
+                            
+                            }
+                # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
+        # import ipdb; ipdb.set_trace()
+        # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
+        model.set_num_updates(update_num)
+        model.train()
+        # second forward starts here
+        with torch.autograd.profiler.record_function("forward"):
+            loss, sample_size, logging_output = criterion(model, sample)
+
+       
+        if ignore_grad:
+            loss *= 0
+        
+        with torch.autograd.profiler.record_function("backward"):
+            optimizer.backward(loss)
+        
+        logging_output["mb_accuracy"] = mb_accuracy
+        logging_output["mb_loss"] = mb_loss/10
+
+        return loss, sample_size, logging_output
 
 
 
@@ -519,8 +781,8 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             if not self.args.unbalanced:
                 if split in self.args.train_subset.split(','):
                     gpus  = range(torch.distributed.get_world_size())
-                    if len(gpus) >= 8:
-                        num_gpus_per_domain = torch.distributed.get_world_size() // 8
+                    if len(train_domains) <= torch.distributed.get_world_size():
+                        num_gpus_per_domain = torch.distributed.get_world_size() // len(train_domains)
                     else:
                         num_gpus_per_domain = 1
                     gpu_mappings = [list(gpus[n:n+num_gpus_per_domain]) for n in range(0, len(gpus), num_gpus_per_domain)]
@@ -625,6 +887,21 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                     src_domain_token=src_domain_token,
                     tgt_domain_token=tgt_domain_token
                 )
+
+
+            if split in self.args.train_subset.split(',') and 'IRL' in self.suffix:
+                # IRL_inputs_05 = torch.load(os.path.join(data_path, domain, "IRL_inputs_05.pt"))
+                # domain_dataset.check_IRL_inputs(IRL_inputs_05)
+
+                # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
+                # IRL_inputs = None
+                logger.info("Loading Losses")
+
+                # del IRL_inputs_05
+                IRL_inputs_05 = None
+                IRL_losses = torch.load(os.path.join(data_path, domain, "IRL_losses.pt"))
+                domain_dataset.set_IRL_losses(IRL_losses)
+
 
             domain_datasets.append(domain_dataset)
 

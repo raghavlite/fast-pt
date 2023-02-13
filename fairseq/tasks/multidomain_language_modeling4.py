@@ -948,10 +948,11 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
             optimizer.backward(loss)
 
 
-        logging_output["loss"] = loss
         logging_output["ntokens"] = logging_output["ntokens"]//10
         logging_output["sample_size"] = logging_output["sample_size"]//10
         logging_output["nsentences"] = logging_output["nsentences"]//10
+        
+        logging_output["loss"] = loss
         logging_output["mb_loss"] = mb_loss/10
 
         logging_output["accuracy"] = accuracy*10
@@ -1164,12 +1165,17 @@ class MultidomainLanguageModelingTask_TK(LegacyFairseqTask):
 
             if split in self.args.train_subset.split(',') and 'IRL' in self.suffix:
                 # IRL_inputs_05 = torch.load(os.path.join(data_path, domain, "IRL_inputs_05.pt"))
+                # domain_dataset.check_IRL_inputs(IRL_inputs_05)
+
                 # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
                 # IRL_inputs = None
+                logger.info("Loading Losses")
+                # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
+                # IRL_inputs = None
+                # del IRL_inputs_05
                 IRL_inputs_05 = None
                 IRL_losses = torch.load(os.path.join(data_path, domain, "IRL_losses.pt"))
-                domain_dataset.set_IRL_losses(IRL_inputs_05, IRL_losses)
-                del IRL_inputs_05
+                domain_dataset.set_IRL_losses(IRL_losses)
 
 
             domain_datasets.append(domain_dataset)

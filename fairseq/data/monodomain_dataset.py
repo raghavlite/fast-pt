@@ -127,7 +127,14 @@ class MonodomainDataset(FairseqDataset):
         self.targets = targets
         self.IRL_losses=None
 
-    def set_IRL_losses(self, IRL_inputs_05, IRL_losses):
+    def check_IRL_inputs(self, IRL_inputs_05):
+        for idx1 in range(len(IRL_inputs_05)):
+            assert (IRL_inputs_05[idx1]==self[idx1]['source'][:5]).all(), (IRL_inputs_05[idx1], self[idx1]['source'][:5])
+        print("IRL inputs checked and matched", flush=True)
+        return
+
+
+    def set_IRL_losses(self, IRL_losses):
         try:
             assert len(IRL_losses) == len(self)
             self.IRL_losses = IRL_losses

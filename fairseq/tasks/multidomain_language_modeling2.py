@@ -546,9 +546,13 @@ class MultidomainLanguageModelingTask_IRL(LegacyFairseqTask):
             
 
             if split in self.args.train_subset.split(','):
-                # IRL_inputs_05 = torch.load(os.path.join(data_path, domain, "IRL_inputs_05.pt"))
+                IRL_inputs_05 = torch.load(os.path.join(data_path, domain, "IRL_inputs_05.pt"))
+                domain_dataset.check_IRL_inputs(IRL_inputs_05)
+
                 # IRL_inputs = torch.load(os.path.join(data_path, domain, "IRL_inputs.pt"))
                 # IRL_inputs = None
+                logger.info("Loading Losses")
+
                 IRL_inputs_05 = None
                 IRL_losses = torch.load(os.path.join(data_path, domain, "IRL_losses.pt"))
                 domain_dataset.set_IRL_losses(IRL_inputs_05, IRL_losses)

@@ -642,7 +642,7 @@ class Trainer(object):
             sample_size = sample_size.float()
         else:
             sample_size = float(sample_size)
-
+        
         # gather logging outputs from all replicas
         if self._sync_stats():
             train_time = self._local_cumulative_training_time()
@@ -1204,7 +1204,7 @@ class Trainer(object):
                     priority=500,
                     round=1,
                 )
-
+        
         with metrics.aggregate() as agg:
             if logging_outputs is not None:
                 self.task.reduce_metrics(logging_outputs, self.get_criterion())

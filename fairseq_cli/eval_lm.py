@@ -403,6 +403,7 @@ def main(cfg: DictConfig, **unused_kwargs):
             res.append({"model": cfg.common_eval.path, "dataset": gen_subset, "ppl": results['perplexity'].item()})
     df = pd.DataFrame(res)
     df.to_json(cfg.common_eval.results_path, lines=True, orient='records')
+    import ipdb; ipdb.set_trace()
     return results
 
 

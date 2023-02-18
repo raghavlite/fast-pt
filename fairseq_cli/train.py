@@ -37,6 +37,9 @@ from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
 from omegaconf import DictConfig, OmegaConf
 
+from pathlib import Path
+
+
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -87,7 +90,7 @@ def main(cfg: FairseqConfig) -> None:
         # setting increased batch size
         # cfg.task["suffix"] = cfg.checkpoint.save_dir
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
-    elif ('IRL' in cfg.task._name or 'HL' in cfg.task._name):
+    elif ('EX' in cfg.task._name ):
         # setting increased abtch size
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
     else:
@@ -155,13 +158,15 @@ def main(cfg: FairseqConfig) -> None:
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     # epoch itr here contains a dataset iterator which will further be converted into a data loader.
+    
+    # iterate through list of models here
+
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(
         cfg.checkpoint,
         trainer,
         # don't cache epoch iterators for sharded datasets
         disable_iterator_cache=task.has_sharded_data("train")
     )
-    
     
     # if('rdl' in cfg.checkpoint.save_dir):
     #     epoch_itr = trainer.get_train_iterator(epoch=1, load_dataset=True)
@@ -178,6 +183,7 @@ def main(cfg: FairseqConfig) -> None:
     train_meter.start()
 
     valid_subsets = cfg.dataset.valid_subset.split(",")
+    
     validate(cfg, trainer, task, epoch_itr, valid_subsets)
     
 

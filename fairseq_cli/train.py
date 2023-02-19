@@ -155,7 +155,8 @@ def main(cfg: FairseqConfig) -> None:
     # checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0812_IL_4_128_128_8_40k/checkpoint_3_40000.pt"
     # checkpoint_path = "/usr/project/xtmp/rt195/DEMIX/PT_Models/dense_4_GPUs_transformer_lm_gpt3_small_0912_IL_4_128_128_8_10k/checkpoint_1_10000.pt"
     # checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1001_IL_4_128_64_16_14k/checkpoint_4_14000.pt"
-    checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_0802_ILbaseline_combined_4_128_16_64_12k_8e-4_0.1/checkpoint_best.pt"
+    # checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_0802_ILbaseline_combined_4_128_16_64_12k_8e-4_0.1/checkpoint_best.pt"
+    checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_1802_ILbaseline_combined_8_128_16_32_30k_8e-4_0.1/checkpoint_3_30000.pt"
     
     extra_state = trainer.load_checkpoint(
         checkpoint_path,

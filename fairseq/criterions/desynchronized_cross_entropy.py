@@ -35,11 +35,14 @@ class CrossEntropyCriterion(FairseqCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
+                
         net_output = model(**sample["net_input"])
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         )
 
+        
+        
         if(alm):
             return self.compute_loss2(model, net_output, sample)
         else:
@@ -54,8 +57,10 @@ class CrossEntropyCriterion(FairseqCriterion):
                 "sample_size": sample_size,
                 "domain": sample['net_input']['src_domain_idx'][0]
             }
-
+            
             return loss, sample_size, logging_output
+
+
 
     def compute_loss2(self, model, net_output, sample):
         sample_size = (
@@ -63,21 +68,18 @@ class CrossEntropyCriterion(FairseqCriterion):
         )
 
         probs = model.get_normalized_probs(net_output, log_probs=False)
-        
         # _ = model.get_targets(sample, net_output).view(-1)
         # top2probs, top2_indices = torch.topk(probs.detach(), 2, -1)
         # diff_prob = top2probs[:,:,0]-top2probs[:,:,1]
         # diff_prob = diff_prob.detach().clone()
 
         max_prob, _ = torch.max(probs.detach(), -1)
-        # import ipdb; ipdb.set_trace()
         return max_prob, sample_size, {}  
 
 
     def compute_loss(self, model, net_output, sample, reduce=True):
         
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
-
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = model.get_targets(sample, net_output).view(-1)
         loss = F.nll_loss(

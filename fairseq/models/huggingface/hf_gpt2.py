@@ -76,56 +76,51 @@ class HuggingFaceGPT2Decoder(FairseqIncrementalDecoder):
             attn_pdrop=args.attention_dropout,
             layer_norm_epsilon=1e-6,
         )
-        self.model = GPT2LMHeadModel(config)
-
-        # set zero embedding for padding symbol
-        self.pad_idx = task.target_dictionary.pad()
-        self.model.transformer.wte.weight.data[self.pad_idx].zero_()
-        self.model.transformer.wpe.weight.data[0].zero_()
+        # self.model = GPT2LMHeadModel(config)
+        self.model = GPT2LMHeadModel.from_pretrained("gpt2")
+        self.pad_idx = 50258
+        # # set zero embedding for padding symbol
+        # self.pad_idx = task.target_dictionary.pad()
+        # self.model.transformer.wte.weight.data[self.pad_idx].zero_()
+        # self.model.transformer.wpe.weight.data[0].zero_()
 
     def forward(
         self,
-        prev_output_tokens,
-        src_lengths=None,
-        incremental_state: Optional[Dict[str, List[torch.Tensor]]] = None,
-        encoder_out=None,
+        input_ids,
     ):
-        features = self.extract_features(prev_output_tokens, incremental_state)
-        lm_logits = self.model.lm_head(features)
-        return (lm_logits,)
+        attention_mask = input_ids.ne(self.pad_idx).int()
+        outputs = self.model(input_ids = input_ids, attention_mask=attention_mask, labels=input_ids)
+        return (outputs.logits, outputs.loss)
 
-    def extract_features(
-        self,
-        prev_output_tokens,
-        incremental_state: Optional[Dict[str, List[torch.Tensor]]] = None,
-    ):
-        if incremental_state:
-            past = self.get_incremental_state("past")
-        else:
-            past = None
+    # def extract_features(
+    #     self,
+    #     prev_output_tokens,
+    #     incremental_state: Optional[Dict[str, List[torch.Tensor]]] = None,
+    # ):
 
-        # don't attend to padding symbols
-        attention_mask = prev_output_tokens.ne(self.pad_idx).int()
+    #     # don't attend to padding symbols
+    #     attention_mask = prev_output_tokens.ne(self.pad_idx).int()
 
-        # set position ids to exclude padding symbols
-        position_ids = attention_mask * (
-            torch.arange(1, 1 + prev_output_tokens.size(1))
-            .to(prev_output_tokens)
-            .repeat(prev_output_tokens.size(0), 1)
-        )
+    #     # set position ids to exclude padding symbols
+    #     position_ids = attention_mask * (
+    #         torch.arange(1, 1 + prev_output_tokens.size(1))
+    #         .to(prev_output_tokens)
+    #         .repeat(prev_output_tokens.size(0), 1)
+    #     )
 
-        outputs = self.model.transformer(
-            input_ids=prev_output_tokens,
-            past=past,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-        )
-        last_hidden_states = outputs[0]
+        
 
-        if incremental_state:
-            self.set_incremental_state(incremental_state, "past", outputs[1])
+    #     outputs = self.model.transformer(
+    #         input_ids=prev_output_tokens,
+    #         attention_mask=attention_mask,
+    #         position_ids=position_ids,
+    #     )
+    #     last_hidden_states = outputs[0]
 
-        return last_hidden_states
+    #     if incremental_state:
+    #         self.set_incremental_state(incremental_state, "past", outputs[1])
+
+    #     return last_hidden_states
 
     def max_positions(self):
         return self.model.config.n_positions - 1

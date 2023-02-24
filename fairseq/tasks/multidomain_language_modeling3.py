@@ -361,7 +361,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -443,7 +443,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -500,7 +500,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
                 selected_indices = selected_indices.detach()
 
-                # import ipdb; ipdb.set_trace()
+                
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
                             'target': sample['target'][selected_indices],
@@ -512,7 +512,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -603,7 +603,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -694,7 +694,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -756,7 +756,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 loss_IRL = sample['IRL_losses']
                 IL_mb_loss = torch.sum(sample['IRL_losses'], dtype=torch.float)
 
-                # import ipdb; ipdb.set_trace()
+                
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
                 diff_loss = loss-loss_IRL
@@ -784,7 +784,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()
@@ -841,7 +841,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 max_prob, sample_size, logging_output = criterion(model, sample, reduce=False, alm=True)
                 
                 sample_scores = torch.mean(max_prob, dim=1)
-                # import ipdb; ipdb.set_trace()
+                
 
 
                 # print("using 90%", diff_loss.shape)
@@ -859,7 +859,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
-        # import ipdb; ipdb.set_trace()
+        
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
         model.train()

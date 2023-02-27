@@ -401,8 +401,8 @@ class WandBProgressBarWrapper(BaseProgressBar):
 
         # reinit=False to ensure if wandb.init() is called multiple times
         # within one process it still references the same run
-        wandb.init(project=wandb_project, reinit=False, id=run_name, name=run_name, entity="faster_pretraining")
-        # wandb.init(project=wandb_project, reinit=False, name=run_name, id="toi4yht5", entity="faster_pretraining")
+        wandb.init(project=wandb_project, reinit=False, id=run_name, name=run_name, resume="allow", entity="faster_pretraining")
+        # wandb.init(project=wandb_project, reinit=False, name=run_name, id="2zfsuoqe", resume="allow", entity="faster_pretraining")
 
     def __iter__(self):
         return iter(self.wrapped_bar)
@@ -420,7 +420,7 @@ class WandBProgressBarWrapper(BaseProgressBar):
     def update_config(self, config):
         """Log latest configuration."""
         if wandb is not None:
-            wandb.config.update(config)
+            wandb.config.update(config, allow_val_change=True)
         self.wrapped_bar.update_config(config)
 
     def _log_to_wandb(self, stats, tag=None, step=None):

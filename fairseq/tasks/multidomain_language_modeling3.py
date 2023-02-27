@@ -798,9 +798,12 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
 
 
     def save_selected_vals(self, sample, loss, loss_IRL, selected_indices):
-        save_dir="../PT_Models/Analysis_Data/5000_mIRL/IL30K"
+        domains, _ , _ = MultidomainLanguageModelingTask_HL._get_domains(self.args, 0)
+        steps = self.suffix.split("_")[-1].split(".")[0]
+        save_dir=f"../PT_Models/Analysis_IRL_models/{steps}_mIRL/{domains[0]}"
         os.makedirs(save_dir, exist_ok=True)
 
+        logger.info("@@@@@@@@@@@@@@@@@@@@@@@ Creating save dir for analysis")
         examples = []
         for each_example in sample['net_input']['src_tokens']:
             example = []
@@ -818,8 +821,9 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         torch.save(loss.detach(), f"{save_dir}/loss_{torch.distributed.get_rank()}.pt")
         torch.save(loss_IRL.detach(), f"{save_dir}/loss_IRL_{torch.distributed.get_rank()}.pt")
         torch.save(selected_indices.detach(), f"{save_dir}/IRL_good_indices_{torch.distributed.get_rank()}.pt")
+        logger.info("@@@@@@@@@@@@@@@@@@ Saved")
 
-
+        import ipdb; ipdb.set_trace()
 
     def train_step_zIRL(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False

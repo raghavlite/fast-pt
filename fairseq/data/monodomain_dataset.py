@@ -75,7 +75,6 @@ def collate(samples, pad_idx, eos_idx, src_domain_idx, fixed_pad_length=None, pa
 class MonodomainDataset(FairseqDataset):
     """
     A wrapper around torch.utils.data.Dataset for monodomain data.
-
     Args:
         dataset (torch.utils.data.Dataset): dataset to wrap
         sizes (List[int]): sentence lengths
@@ -127,7 +126,14 @@ class MonodomainDataset(FairseqDataset):
         self.targets = targets
         self.IRL_losses=None
 
-    def set_IRL_losses(self, IRL_inputs_05, IRL_losses):
+    def check_IRL_inputs(self, IRL_inputs_05):
+        for idx1 in range(len(IRL_inputs_05)):
+            assert (IRL_inputs_05[idx1]==self[idx1]['source'][:5]).all(), (IRL_inputs_05[idx1], self[idx1]['source'][:5])
+        print("IRL inputs checked and matched", flush=True)
+        return
+
+
+    def set_IRL_losses(self, IRL_losses):
         try:
             assert len(IRL_losses) == len(self)
             self.IRL_losses = IRL_losses
@@ -252,21 +258,16 @@ class MonodomainDataset(FairseqDataset):
 
     def collater(self, samples):
         """Merge a list of samples to form a mini-batch.
-
         Args:
             samples (List[dict]): samples to collate
-
         Returns:
             dict: a mini-batch with the following keys:
-
                 - `id` (LongTensor): example IDs in the original input order
                 - `ntokens` (int): total number of tokens in the batch
                 - `net_input` (dict): the input to the Model, containing keys:
-
                   - `src_tokens` (LongTensor): a padded 2D Tensor of tokens in
                     the source sentence of shape `(bsz, src_len)`. Padding will
                     appear on the right.
-
                 - `target` (LongTensor): a padded 2D Tensor of tokens in the
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the right.

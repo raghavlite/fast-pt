@@ -81,7 +81,17 @@ def main(cfg: FairseqConfig) -> None:
 
     ## IMP
     # Setup task, e.g., translation, language modeling, etc.
-    
+    with open_dict(cfg.checkpoint):
+        # ! change dataset matches with this also in the input command
+        # ! make sure checkpoint is loaded
+        # il10k
+        cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1602_mIRL_combined_4_128_16_64_25k_8e-4_0.1/checkpoint_10_25000.pt"
+        # il30k
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1902_mIRL_combined_4_128_16_64_25k_8e-4_0.1/checkpoint_10_25000.pt"
+        # il50k
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_2002_mIRL_combined_8_128_16_32_25k_8e-4_0.1_il50k/checkpoint_2_5000.pt"
+
+
     if('TK' in cfg.task._name):
         # setting increased batch size
         # cfg.task["suffix"] = cfg.checkpoint.save_dir
@@ -92,7 +102,7 @@ def main(cfg: FairseqConfig) -> None:
     else:
         pass
     
-    task = tasks.setup_task(cfg.task, suffix=cfg.checkpoint.save_dir)
+    task = tasks.setup_task(cfg.task, suffix=cfg.checkpoint.save_dir +"_"+ cfg.checkpoint.overide_checkpoint_path.split('_')[-1])
     
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
@@ -152,10 +162,6 @@ def main(cfg: FairseqConfig) -> None:
     )
     
     
-    with open_dict(cfg.checkpoint):
-        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1801_TKbaseline_combined_4_128_16_64_6h_8e-4_0.1/checkpoint_last.pt"
-        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1801_TKbaseline_combined_4_128_16_64_6h_8e-4_0.1/checkpoint_1233.pt"
-        cfg.checkpoint.overide_checkpoint_path = None
 
     # import ipdb; ipdb.set_trace()
     # Load the latest checkpoint if one is available and restore the

@@ -1163,7 +1163,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                     src_vocab=self.dictionary,
                     tgt_vocab=self.output_dictionary,
                     add_eos_for_other_targets=add_eos_for_other_targets,
-                    shuffle=True,
+                    shuffle=False,
                     targets=self.targets,
                     fixed_pad_length=fixed_pad_length,
                     pad_to_bsz=pad_to_bsz,

@@ -758,6 +758,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
 
                 IL_loss = torch.sum(sample['IRL_losses'][selected_indices])
 
+                self.save_selected_vals(sample, loss, loss_IRL, selected_indices)
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
                             'target': sample['target'][selected_indices],
@@ -769,7 +770,6 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                             
                             }
 
-                self.save_selected_vals(sample, loss, loss_IRL, selected_indices)
                 # ! IMP. change src_domain_idx if you are using more than one domain per gpu.
         
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
@@ -798,6 +798,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
 
 
     def save_selected_vals(self, sample, loss, loss_IRL, selected_indices):
+
         domains, _ , _ = MultidomainLanguageModelingTask_HL._get_domains(self.args, 0)
         steps = self.suffix.split("_")[-1].split(".")[0]
         save_dir=f"../PT_Models/Analysis_IRL_models/{steps}_mIRL/{domains[0]}"
@@ -824,6 +825,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         logger.info("@@@@@@@@@@@@@@@@@@ Saved")
 
         import ipdb; ipdb.set_trace()
+        assert False
 
     def train_step_zIRL(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
@@ -1238,6 +1240,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 ds.append(d)
             dataset = ConcatDataset(ds)
 
+        
         self.datasets[split] = dataset
         print("Self datasets", self.datasets)
 

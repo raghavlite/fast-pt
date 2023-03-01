@@ -203,7 +203,7 @@ def main(cfg: FairseqConfig) -> None:
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
 
         epoch_itr = trainer.get_train_iterator(
-            epoch_itr.next_epoch_idx,
+            0,
             # sharded data: get train iterator for next epoch
             load_dataset=task.has_sharded_data("train"),
             # don't cache epoch iterators for sharded datasets
@@ -293,7 +293,7 @@ def train(
     should_stop = False
     num_updates = trainer.get_num_updates()
     for i, samples in enumerate(progress):
-        
+
         with metrics.aggregate("train_inner"), torch.autograd.profiler.record_function(
             "train_step-%d" % i
         ):

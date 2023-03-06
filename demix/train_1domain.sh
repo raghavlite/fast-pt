@@ -70,7 +70,7 @@ FILE_SUFFIX=${15}
 
 WANDB_PROJECT=fast-pt;
 LOG_INTERVAL=50;
-KEEP_INTERVAL_UPDATES=10;
+KEEP_INTERVAL_UPDATES=20;
 echo $EXPERIMENT
 if [[ $ARCH == *"gpt3_small"* ]]; then
      BATCH_SIZE_VALIDATION=256
@@ -86,7 +86,7 @@ if [[ $ARCH == *"gpt3_small"* ]]; then
           VALIDATION_INTERVAL=1000;
           TASK_NAME=multidomain_language_modeling;
      elif [[ $FILE_SUFFIX == *"IRL"* ]]; then
-          SAVE_INTERVAL_UPDATES=5000;
+          SAVE_INTERVAL_UPDATES=3000;
           VALIDATION_INTERVAL=1000;
           TASK_NAME=multidomain_language_modeling_EX;
      elif [[ $FILE_SUFFIX == *"baseline"* ]]; then    

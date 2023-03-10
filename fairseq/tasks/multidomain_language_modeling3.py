@@ -822,7 +822,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         torch.save(loss.detach(), f"{save_dir}/loss_{torch.distributed.get_rank()}.pt")
         torch.save(loss_IRL.detach(), f"{save_dir}/loss_IRL_{torch.distributed.get_rank()}.pt")
         torch.save(selected_indices.detach(), f"{save_dir}/IRL_good_indices_{torch.distributed.get_rank()}.pt")
-        logger.info("@@@@@@@@@@@@@@@@@@ Saved")
+        logger.info(f"@@@@@@@@@@@@@@@@@@ Saved to {save_dir}")
 
         import ipdb; ipdb.set_trace()
         assert False

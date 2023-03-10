@@ -86,22 +86,25 @@ def main(cfg: FairseqConfig) -> None:
         # ! make sure checkpoint is loaded
         # il10k
         # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1602_mIRL_combined_4_128_16_64_25k_8e-4_0.1/checkpoint_10_25000.pt"
+        cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_2702_mIRL_combined_4_128_16_64_25k_8e-4_0.1/checkpoint_10_25000.pt"
         # il30k
-        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1902_mIRL_combined_4_128_16_64_25k_8e-4_0.1/checkpoint_2_5000.pt"
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_1902_mIRL_combined_4_128_16_64_25k_8e-4_0.1_il30k/checkpoint_10_25000.pt"
         # il50k
-        cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_2002_mIRL_combined_8_128_16_32_25k_8e-4_0.1_il50k/checkpoint_10_25000.pt"
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_2002_mIRL_combined_8_128_16_32_25k_8e-4_0.1_il50k/checkpoint_10_25000.pt"
 
 
     if('TK' in cfg.task._name):
         # setting increased batch size
         # cfg.task["suffix"] = cfg.checkpoint.save_dir
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
-    elif ('IRL' in cfg.task._name or 'HL' in cfg.task._name):
+    elif ('EX' in cfg.task._name ):
         # setting increased abtch size
         cfg.dataset.batch_size=10*cfg.dataset.batch_size
     else:
         pass
     
+    print(f"Using batch size {cfg.dataset.batch_size}, {cfg.task._name}")
+
     task = tasks.setup_task(cfg.task, suffix=cfg.checkpoint.save_dir +"_"+ cfg.checkpoint.overide_checkpoint_path.split('_')[-1])
     
 

@@ -19,7 +19,7 @@ MAX_UPDATE=$6;
 # Number of nodes you'd like to train on (assuming 8 GPUs per node)
 NUM_NODES=1
 # Distributed port
-PORT=$(($SLURM_JOBID%65535))
+PORT=$((($SLURM_JOBID%65535)+1000))
 # Fairseq model name (e.g. transformer_lm; see https://github.com/kernelmachine/demix/blob/main/fairseq/models/transformer_lm.py for other options)
 ARCH=$7
 # Baseline type: choice between demix, dense, unbalanced_dense, and domain_token
@@ -86,7 +86,7 @@ if [[ $ARCH == *"gpt3_small"* ]]; then
           VALIDATION_INTERVAL=1000;
           TASK_NAME=multidomain_language_modeling;
      elif [[ $FILE_SUFFIX == *"IRL"* ]]; then
-          SAVE_INTERVAL_UPDATES=3000;
+          SAVE_INTERVAL_UPDATES=2500;
           VALIDATION_INTERVAL=1000;
           TASK_NAME=multidomain_language_modeling_EX;
      elif [[ $FILE_SUFFIX == *"baseline"* ]]; then    

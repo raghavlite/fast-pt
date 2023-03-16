@@ -236,7 +236,11 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             self.train_step = self.train_step_PIRL
         elif 'mIRL' in suffix and (not 'PIRL' in suffix) and (not 'HL' in suffix):
             self.train_step = self.train_step_mIRL
-            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running mIRL")
+            if('tw' in suffix):
+                self.tw = float(suffix.split('tw')[1].split('_')[0])
+            else:
+                self.tw = 1
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running mIRL with tw {self.tw}")
         elif 'zIRL' in suffix and (not 'PIRL' in suffix) and (not 'HL' in suffix):
             self.train_step = self.train_step_zIRL
             print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running zIRL")
@@ -762,7 +766,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 
                 loss = loss.view(sample["net_input"]['src_tokens'].shape)
 
-                diff_loss = loss-loss_IRL
+                diff_loss = self.tw*loss-loss_IRL
 
                 # sorted_diff_loss = torch.sort(diff_loss,  descending=True)
                 # sample_scores = sorted_diff_loss[:, int(0.2*1024)]

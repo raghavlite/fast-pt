@@ -98,13 +98,13 @@ if [[ $ARCH == *"gpt3_small"* ]]; then
           # VALIDATION_INTERVAL=30;
           TASK_NAME=multidomain_language_modeling;
      elif [[ $FILE_SUFFIX == *"HL"* ]]; then    
-          SAVE_INTERVAL_UPDATES=1000;
+          SAVE_INTERVAL_UPDATES=5000;
           VALIDATION_INTERVAL=1000;
           # SAVE_INTERVAL_UPDATES=100;
           # VALIDATION_INTERVAL=100;
           TASK_NAME=multidomain_language_modeling_EX;
      elif [[ $FILE_SUFFIX == *"ALM"* ]]; then    
-          SAVE_INTERVAL_UPDATES=1000;
+          SAVE_INTERVAL_UPDATES=5000;
           VALIDATION_INTERVAL=1000;
           # SAVE_INTERVAL_UPDATES=100;
           # VALIDATION_INTERVAL=100;

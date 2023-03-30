@@ -223,7 +223,10 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
             print(">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running ALM EX")
             self.train_step = self.train_step_ALM
         elif 'PHL' in suffix:
-            self.temperature = float(suffix.split('temp')[1].split('_')[0])
+            if('temp' in suffix):
+                self.temperature = float(suffix.split('temp')[1].split('_')[0])
+            else:
+                self.temperature = 1
             print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>> Running PHL EX, with temp {self.temperature}")
             self.train_step = self.train_step_PHL
         elif 'HL' in suffix and not 'OHL' in suffix and not 'PHL' in suffix:

@@ -171,7 +171,7 @@ def main(cfg: FairseqConfig) -> None:
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0313_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_8_85000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_2002_ILbaseline_combined_4_128_16_64_75k_8e-4_0.1/checkpoint_5_50000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_4_GPUs_transformer_lm_gpt3_small_2002_ILbaseline_combined_4_128_16_64_75k_8e-4_0.1/checkpoint_3_30000.pt"
-    # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0322_ILbaseline_combined_8_128_16_32_75k_64e-4_0.1/checkpoint_7_75000.pt"
+    checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0322_ILbaseline_combined_8_128_16_32_75k_64e-4_0.1/checkpoint_7_75000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0322_ILbaseline_combined_8_128_16_32_75k_64e-4_0.1/checkpoint_5_50000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0322_ILbaseline_combined_8_128_16_32_75k_64e-4_0.1/checkpoint_3_30000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0322_ILbaseline_combined_8_128_16_32_75k_64e-4_0.1/checkpoint_6_60000.pt"
@@ -179,7 +179,7 @@ def main(cfg: FairseqConfig) -> None:
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0406_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_10_100000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0406_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_7_75000.pt"
     # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0406_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_5_50000.pt"
-    checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0406_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_3_25000.pt"
+    # checkpoint_path="../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0406_ILbaseline_combined_8_128_16_32_100k_64e-4_0.1/checkpoint_3_25000.pt"
     
     extra_state = trainer.load_checkpoint(
         checkpoint_path,

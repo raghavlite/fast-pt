@@ -99,8 +99,8 @@ def main(cfg: FairseqConfig) -> None:
         # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0404_mIRL_combined_8_128_16_32_25k_64e-4_0.1_64lril75k/checkpoint_6_15000.pt"
         
 
-        cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0404_mIRL_combined_8_128_16_32_25k_64e-4_0.1_64lril30k/checkpoint_10_25000.pt"
-        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0404_mIRL_combined_8_128_16_32_25k_64e-4_0.1_64lril75k/checkpoint_10_25000.pt"
+        # cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0404_mIRL_combined_8_128_16_32_25k_64e-4_0.1_64lril30k/checkpoint_10_25000.pt"
+        cfg.checkpoint.overide_checkpoint_path = "../PT_Models/unbalanced_dense_8_GPUs_transformer_lm_gpt3_small_0404_mIRL_combined_8_128_16_32_25k_64e-4_0.1_64lril75k/checkpoint_10_25000.pt"
 
 
     if('TK' in cfg.task._name):

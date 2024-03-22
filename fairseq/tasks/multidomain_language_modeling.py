@@ -43,6 +43,7 @@ from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.tasks import LegacyFairseqTask, register_task
 from omegaconf import II
 from torch.utils.data import DataLoader
+import time
 
 # from sklearn.feature_extraction.text import CountVectorizer
 # from sklearn.cluster import MiniBatchKMeans

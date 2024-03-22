@@ -10,7 +10,7 @@ from typing import Optional
 from collections import OrderedDict
 import ast
 from tqdm import tqdm, trange
-
+import time
 from torch.utils.data import Subset
 import numpy as np
 import torch
@@ -497,6 +497,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 - logging outputs to display while training
         """
         model.eval()
+        start_time = time.time()
         with torch.no_grad():
             with torch.autograd.profiler.record_function("first forward"):
                 loss, sample_size, logging_output = criterion(model, sample, reduce=False)
@@ -510,6 +511,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 selected_indices = torch.multinomial(example_probs, loss.shape[0]//10)
                 selected_indices = selected_indices.detach()
 
+                ffh_time=time.time()
                 
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
                 sample = {'id': sample['id'][selected_indices],
@@ -525,18 +527,21 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
+        ff_time=time.time()
         model.train()
         # second forward starts here
         with torch.autograd.profiler.record_function("forward"):
             loss, sample_size, logging_output = criterion(model, sample)
 
-       
+        sf_time = time.time()
         if ignore_grad:
             loss *= 0
         
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
         
+        bk_time = time.time()
+        print(ffh_time-start_time, ff_time-ffh_time, sf_time-ff_time, bk_time-sf_time, "runtimes", flush=True)
 
         logging_output["mb_accuracy"] = mb_accuracy
         logging_output["mb_loss"] = mb_loss/10
@@ -755,6 +760,8 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         """
         
 
+        start_time = time.time()
+
         model.eval()
         with torch.no_grad():
             with torch.autograd.profiler.record_function("first forward"):
@@ -781,6 +788,7 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
                 sorted_scores, indices = torch.sort(sample_scores, descending=True)
                 selected_indices = indices[:diff_loss.shape[0]//10]
 
+                ffh_time=time.time()
                 IL_loss = torch.sum(sample['IRL_losses'][selected_indices])
 
                 # print(f"original Sample size is {len(sample["net_input"]["src_tokens"])}, selected sample size is {len(selected_indices)}")
@@ -797,18 +805,23 @@ class MultidomainLanguageModelingTask_HL(LegacyFairseqTask):
         
         # print("eliminated examples", indices.shape[0], sample['id'].shape[0], flush=True)
         model.set_num_updates(update_num)
+        ff_time=time.time()
         model.train()
         # second forward starts here
         with torch.autograd.profiler.record_function("forward"):
             loss, sample_size, logging_output = criterion(model, sample)
 
-       
+        sf_time = time.time()
         if ignore_grad:
             loss *= 0
         
         with torch.autograd.profiler.record_function("backward"):
             optimizer.backward(loss)
         
+        bk_time = time.time()
+        print(ffh_time-start_time, ff_time-ffh_time, sf_time-ff_time, bk_time-sf_time, "runtimes", flush=True)
+
+
         logging_output["mb_accuracy"] = mb_accuracy
         logging_output["mb_loss"] = mb_loss/10
     

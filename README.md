@@ -11,7 +11,7 @@ Make sure to set the `DATA_DIR` accordingly.
 
 ## Fairseq Installation
 
-Follow installation from 
+Follow installation from https://github.com/kernelmachine/demix
 
 
 ## Running Code
